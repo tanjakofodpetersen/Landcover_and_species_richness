@@ -1471,502 +1471,6 @@ plot(data_predict,
 
 
 
-##--- 2.7 LIMITED DATASETS ---####
-##----------------------------####
-
-# The models tried out above gave outrageous predictions, likely due to the large amounts of zeros in the
-# data, thus giving two peaks in the density plot.
-# What happens if we leave out those grid cells? (absolutely not optimal, but a last resort)
-# This is potentially not the direction we want to take, as it leaves out information: where
-# the species are NOT (we thus have no "True Absence").
-
-# These models do not provide reasonable predictions either
-
-##--- 2.7.1 CREATING DATAFRAMES AND DATA EXPLORATION ---####
-##------------------------------------------------------####
-# Remove the grid cells without any registrations of either threatened or alien species:
-TrdRast_model_red <- TrdRast_model[!TrdRast_model@data$S.chao1_reds_2013==0,]
-TrdRast_model_black <- TrdRast_model[!TrdRast_model@data$S.chao1_blacks_2013==0,]
-
-### Outliers:
-MyVar <- c("log_chao.reds", "log_chao.blacks", "Developed", "Agriculture", "Forest", "hfgl",
-           "ofg_imp", "ofg_urban", "Freshwater", "Ocean",
-           "Freshwater.2012", "Ocean.2012", "Developed.2012", "Agriculture.2012", "Forest.2012",
-           "hfgl.2012", "ofg_imp.2012", "ofg_urban.2012",
-           "delta_Developed", "delta_Agriculture", "delta_Forest", "delta_hfgl",
-           "delta_ofg_imp", "delta_ofg_urban", "delta_freshwater", "delta_ocean" )
-
-Mydotplot(TrdRast_model_red@data[,MyVar])
-Mydotplot(TrdRast_model_black@data[,MyVar])
-# We do have a few outliers, which we might have to deal with.
-
-### Colinearity
-pairs(TrdRast_model_red@data[, MyVar[c(1,3:10,19:26)]], 
-      lower.panel = panel.cor)
-pairs(TrdRast_model_black@data[, MyVar[c(2:10,19:26)]], 
-      lower.panel = panel.cor)
-
-### Relationships
-Myxyplot(TrdRast_model_red@data, MyVar[3:18], "log_chao.reds", 
-         MyYlab = "ESR of redlisted species")
-
-Myxyplot(TrdRast_model_black@data, MyVar[3:18], "log_chao.blacks", 
-         MyYlab = "ESR of alien species")
-# We cannot see any clear relationships from this, unfortunately
-
-
-### Normal distribution of data
-# Density plots:
-par(mfrow=c(1,1))
-par(mar=c(2,2,3,0.5))
-for(i in c(45)){
-  plot(density.default(TrdRast_model_red@data[!is.na(TrdRast_model_red@data[,i]),i]),
-       main=colnames(TrdRast_model_red@data[i]),
-       cex.main=0.75, cex.axis=0.6)
-}       
-for(i in c(46)){
-  plot(density.default(TrdRast_model_black@data[!is.na(TrdRast_model_black@data[,i]),i]),
-       main=colnames(TrdRast_model_black@data[i]),
-       cex.main=0.75, cex.axis=0.6)
-}
-
-# QQplots
-for(i in c(45)){
-  qqnorm(TrdRast_model_red@data[!is.na(TrdRast_model_red@data[,i]),i], main=colnames(TrdRast_model_red@data[i]),
-         cex.main=0.75, cex.axis=0.6, cex.lab=0.6) ; qqline(TrdRast_model_red@data[!is.na(TrdRast_model_red@data[,i]),i], col="red")
-}       
-for(i in c(46)){
-  qqnorm(TrdRast_model_black@data[!is.na(TrdRast_model_black@data[,i]),i], main=colnames(TrdRast_model_black@data[i]),
-         cex.main=0.75, cex.axis=0.6, cex.lab=0.6) ; qqline(TrdRast_model_black@data[!is.na(TrdRast_model_black@data[,i]),i], col="red")
-}
-
-
-##--- 2.8 PRELIMINARY MODELLING (NON-SPATIAL) ---####
-##--- 2.8.1 Model 1 - threatened species      ---####
-##-----------------------------------------------####
-
-M1_red <- glm(log_chao.reds ~  Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-               delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl
-             + delta_ofg_imp + delta_ofg_urban + delta_freshwater ,
-             family = "gaussian",
-             data = TrdRast_model_red@data)
-
-summary(M1_red)
-
-
-### Model validation 1:   (no overdispersion in Gaussian)
-# Generalized R^2 = (Null deviance - residual deviance)/ Null deviance
-(271.93 - 178.22) / 271.93    # Relatively large, actually
-
-### Model validation 2: Is everything significant?
-drop1(M1_red, test = "Chi")
-step(M1_red) #Backwards selection using AIC
-
-# According to 'step()', we can remove some of the variables - the optimal model being:
-# log_chao.reds ~ Developed + Agriculture + Forest + Marsh + delta_freshwater
-M1.2_red <- glm(log_chao.reds ~ Developed + Agriculture + Forest + Marsh + delta_freshwater,
-               family = "gaussian", 
-               data = TrdRast_model_red@data)
-summary(M1.2_red)
-# The coefficient values seem a little odd - the relationships are in many cases opposite of what I expected
-
-# Plot residuals vs fitted values (M1)
-F1_red <- fitted(M1_red)
-E1_red <- resid(M1_red, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F1_red, 
-     y = E1_red,
-     xlab = "Fitted values - M1",
-     ylab = "Pearson residuals - M1",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)
-
-# Plot residuals vs fitted values (M1.2)
-F1.2_red <- fitted(M1.2_red)
-E1.2_red <- resid(M1.2_red, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F1.2_red, 
-     y = E1.2_red,
-     xlab = "Fitted values - M1.2",
-     ylab = "Pearson residuals - M1.2",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)
-
-# Plot the residuals vs each covariate     
-TrdRast_model_red@data$E1_red <- E1_red
-Myxyplot(TrdRast_model_red@data, MyVar, "E1_red")
-TrdRast_model_red@data$E1_red <- NULL
-
-TrdRast_model_red@data$E1.2_red <- E1.2_red
-Myxyplot(TrdRast_model_red@data, MyVar, "E1.2_red")
-TrdRast_model_red@data$E1.2_red <- NULL
-
-# Histogram of the residuals to check is they are Gaussian:
-hist(E1_red)
-hist(E1.2_red)
-
-
-
-##--- 2.8.2 Model 2 - alien species ---####
-##-------------------------------------####
-
-M2_black <- glm(log_chao.blacks ~  Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-               delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl
-             + delta_ofg_imp + delta_ofg_urban + delta_freshwater ,
-             family = "gaussian",
-             data = TrdRast_model_black@data)
-
-summary(M2_black)
-
-### Model validation 1:   (no overdispersion in Gaussian)
-# Generalized R^2 = (Null deviance - residual deviance)/ Null deviance
-(220.45 - 180.14) / 220.45    # Relatively large, actually?
-
-### Model validation 2: Is everything significant?
-drop1(M2_black, test = "Chi")
-step(M2_black) #Backwards selection using AIC
-
-# According to 'step()', we can remove quite a few of the variables - the optimal model being:
-# log_chao.blacks ~ Developed + Agriculture + Forest + Marsh + ofg_urban + delta_Developed
-M2.2_black <- glm(log_chao.blacks ~ Developed + Agriculture + Forest +  Marsh + ofg_urban + delta_Developed,
-               family = "gaussian", 
-               data = TrdRast_model_black@data)
-summary(M2.2_black)
-
-
-# Plot residuals vs fitted values
-F2_black <- fitted(M2_black)
-E2_black <- resid(M2_black, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F2_black, 
-     y = E2_black,
-     xlab = "Fitted values",
-     ylab = "Pearson residuals",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)       
-
-F2.2_black <- fitted(M2.2_black)
-E2.2_black <- resid(M2.2_black, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F2.2_black, 
-     y = E2.2_black,
-     xlab = "Fitted values",
-     ylab = "Pearson residuals",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)       
-
-# Plot the residuals vs each covariate     
-TrdRast_model_black@data$E2_black <- E2_black
-Myxyplot(TrdRast_model_black@data, MyVar, "E2_black")
-TrdRast_model_black@data$E2_black <- NULL
-
-TrdRast_model_black@data$E2.2_black <- E2.2_black
-Myxyplot(TrdRast_model_black@data, MyVar, "E2.2_black")
-TrdRast_model_black@data$E2.2_black <- NULL
-
-# Histogram of the residuals to check is they are Gaussian:
-hist(E2_black)
-hist(E2.2_black)
-
-
-##--- 2.9 SPATIAL AUTOCORRELATION- threatened species ---####
-##--- 2.9.1 Testing for SAC - Chao1_reds              ---####
-##-------------------------------------------------------####
-library(spdep)
-library(ncf)
-
-# We have already subsetted the dataset, but we need the coordinates.
-# OBS! We have to only use the cells for which have data on all variables - otherwise we get errors:
-xy_red <- coordinates(TrdRast_model_red)
-
-# Make a plot to visualize - some autocorrelation is detectable:
-col.heat <- heat.colors(max(TrdRast_model_red$log_chao.reds) + 1)
-palette(rev(col.heat))
-layout(t(1:2),widths=c(6,1))
-par(mar=c(1,1,1,1))
-plot(TrdRast_model_red, col=(TrdRast_model_red$log_chao.reds))   
-par(mar=c(5,1,5,2.5))
-image(y=0:5,z=t(0:5), col=rev(col.heat), axes=FALSE, main="log(threatened\n+0.01)", cex.main=.6)
-axis(4,cex.axis=0.8,mgp=c(0,.5,0))
-
-# Make a correlogram:
-correlog1_red <- correlog(xy_red[,1], xy_red[,2], residuals(M1_red), na.rm = T, increment = 1, resamp = 0)
-
-# Plot the first 20 distance classes
-par(mfrow=c(1,1))
-par(mar=c(5,5,0.1, 0.1))
-plot(correlog1_red$correlation[1:20], type="b", pch=16, lwd=1.5,
-     xlab="distance", ylab="Moran's I"); abline(h=0)
-
-# Make a map of the residuals:
-plot(xy_red[,1], xy_red[,2], col=c("blue", "red")[sign(resid(M1_red))/2+1.5], pch=19,
-     cex=abs(resid(M1_red))/max(resid(M1_red))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-
-# calculate Moran's I values explicitly for a certain distance, and to test for its significance:
-M1_red.nb <- dnearneigh(as.matrix(xy_red[,1:2]), 0, 1500) # Find the neighbors - give lower and upper distance class here
-# OBS! The classes are in euclidian distance (m), thus we need a reasonable distance to define
-# a neighbouring grid cell. Here, I have chosen to use 1.5 km 
-# to make it reasonable! Otherwise, use the following list:
-# w_pp <- poly2nb(TrdRast_pp, row.names=TrdRast_pp$Pixelnr)     # Find the neighbors
-# ww_pp <-  nb2listw(w_pp, style='B', zero.policy = TRUE)       # Make it a "listw" spatial object
-M1_red.listw <- nb2listw(M1_red.nb, zero.policy = T)   
-# Turns neighbourhood object into a weighted list
-# this next step takes often several minutes to run:
-GlobMT1_red <- moran.test(residuals(M1_red), listw=M1_red.listw, zero.policy = T)
-GlobMT1_red
-
-# We do not have SAC in these model residuals.
-# Lets have a look at whether there is SAC in the data itself rather than only the residuals:
-moran(TrdRast_model_red$log_chao.reds, M1_red.listw, n=length(M1_red.listw$neighbours),
-      S0=Szero(M1_red.listw), zero.policy = TRUE)    # Calculate Moran's I
-
-# Test for significance:
-moran.test(TrdRast_model_red$log_chao.reds, M1_red.listw, randomisation=FALSE,
-           alternative = "two.sided", zero.policy = TRUE)     # Using linear regression based logic and assumptions
-
-MC_red <- moran.mc(TrdRast_model_red$log_chao.reds, M1_red.listw,
-                  zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
-par(mfrow=c(1,1))
-par(mar=c(5.1,4.1,4.1,2.1))
-plot(MC_red, main=NULL)     # Our value is way beyond the curve - high levels of SAC in the data!
-abline(v=MC_red$statistic, lty=2, col="red")
-
-# Make a correlogram
-sp.corr_ns <- sp.correlogram(M1_ns.nb, TrdRast_model$log_chao.reds, order=8, method="I", zero.policy = TRUE)
-par(mar=c(5.1, 4.1, 4.1, 2.1))
-plot(sp.corr_ns)
-
-# So, we have autocorrelation in the data itself but not in the model residuals
-# Test the reduced model as well:
-GlobMT1.2_red <- moran.test(residuals(M1.2_red), listw=M1_red.listw, zero.policy = T)
-GlobMT1.2_red
-
-# No SAC in either of the models
-
-
-##--- 2.9.2 Testing for SAC - Chao1_blacks             ---####
-##--------------------------------------------------------####
-xy_black <- coordinates(TrdRast_model_black)
-M1_black.nb <- dnearneigh(as.matrix(xy_black[,1:2]), 0, 1500) # Find the neighbors - give lower and upper distance class here
-M1_black.listw <- nb2listw(M1_black.nb, zero.policy = T)   
-
-
-# Make a plot to visualize - some autocorrelation is detectable:
-col.heat <- heat.colors(max(TrdRast_model_black$log_chao.blacks) + 1)
-palette(rev(col.heat))
-layout(t(1:2),widths=c(6,1))
-par(mar=c(1,1,1,1))
-plot(TrdRast_model_black, col=(TrdRast_model_black$log_chao.blacks)) 
-par(mar=c(5,1,5,2.5))
-image(y=0:6,z=t(0:6), col=rev(col.heat), axes=FALSE, main="log(alien\n+00.1)", cex.main=.6)
-axis(4,cex.axis=0.8,mgp=c(0,.5,0))
-
-# Make a correlogram:
-correlog2_black <- correlog(xy_black[,1], xy_black[,2], residuals(M2_black), na.rm = T, increment = 1, resamp = 0)
-
-# Plot the first 20 distance classes
-par(mfrow=c(1,1))
-par(mar=c(5,5,0.1, 0.1))
-plot(correlog2_black$correlation[1:20], type="b", pch=16, lwd=1.5,
-     xlab="distance", ylab="Moran's I"); abline(h=0)
-
-# Make a map of the residuals:
-plot(xy_black[,1], xy_black[,2], col=c("blue", "red")[sign(resid(M2_black))/2+1.5], pch=19,
-     cex=abs(resid(M2_black))/max(resid(M2_black))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-
-# calculate Moran's I values explicitly for a certain distance, and test for its significance:
-GlobMT2_ns <- moran.test(residuals(M2_black), listw=M1_black.listw, zero.policy = T)
-GlobMT2_ns
-
-# We borderlien have SAC
-
-### For the reduced model:
-# Make a correlogram:
-correlog2.2_black <- correlog(xy_black[,1], xy_black[,2], residuals(M2.2_black), na.rm = T, increment = 1, resamp = 0)
-
-# Plot the first 20 distance classes
-par(mfrow=c(1,1))
-par(mar=c(5,5,0.1, 0.1))
-plot(correlog2.2_black$correlation[1:20], type="b", pch=16, lwd=1.5,
-     xlab="distance", ylab="Moran's I"); abline(h=0)
-
-# Make a map of the residuals:
-plot(xy_black[,1], xy_black[,2], col=c("blue", "red")[sign(resid(M2.2_black))/2+1.5], pch=19,
-     cex=abs(resid(M2.2_black))/max(resid(M2.2_black))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-
-# calculate Moran's I values explicitly for a certain distance, and to test for its significance:
-GlobMT2.2_black <- moran.test(residuals(M2.2_black), listw=M1_black.listw, zero.policy = T)
-GlobMT2.2_black
-
-
-##--- 2.10 DEALING WITH SAC ---####
-##--- 2.10.1 Chao1_reds     ---####
-##-----------------------------####
-summary(gls.exp_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                            delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                            delta_ofg_urban + delta_freshwater ,
-                          data=TrdRast_model_red@data, correlation=corExp(form=~xy_red[,1]+xy_red[,2])))
-summary(gls.gauss_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                              delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                              delta_ofg_urban + delta_freshwater ,
-                            data=TrdRast_model_red@data, correlation=corGaus(form=~xy_red[,1]+xy_red[,2])))
-summary(gls.spher_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                              delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                              delta_ofg_urban + delta_freshwater ,
-                            data=TrdRast_model_red@data, correlation=corSpher(form=~xy_red[,1]+xy_red[,2])))
-summary(gls.lin_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                            delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                            delta_ofg_urban + delta_freshwater ,
-                          data=TrdRast_model_red@data, correlation=corLin(form=~xy_red[,1]+xy_red[,2])))
-summary(gls.Ratio_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                              delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                              delta_ofg_urban + delta_freshwater ,
-                            data=TrdRast_model_red@data, correlation=corRatio(form=~~xy_red[,1]+xy_red[,2])))
-
-AIC(M1_red, gls.exp_red, gls.gauss_red, gls.spher_red, gls.lin_red, gls.Ratio_red)
-# All spatial correlations makes a better model.
-# Since the deltaAIC between the spatial models are less than 2, we go for the simplest one: gls.exp
-# Remove the others (for space):
-rm(gls.gauss_red)
-rm(gls.spher_red)
-rm(gls.lin_red)
-rm(gls.Ratio_red)
-
-# As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
-# We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
-# the backwards model selection impossible, as the AIC is undefined:
-summary(gls.exp_ML_red <- gls(log_chao.reds ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                               delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                               delta_ofg_urban + delta_freshwater ,
-                             data=TrdRast_model_red@data, correlation=corExp(form=~xy_red[,1]+xy_red[,2]), method = "ML"))
-
-drop1(gls.exp_ML_red, test = "Chi")
-library(MASS)
-stepAIC(gls.exp_ML_red)              # For unknown reasons, the standard 'step()' doesn't work - this one does
-
-# According to the SAC-function, the optimal model is:
-# gls(log_chao.reds ~ Developed + Agriculture + Forest + Marsh + delta_freshwater)
-# This is similar to the optimal model for the non-spatial approach - the coefficients seem a little odd though
-
-gls.exp_threat_red <- gls(log_chao.reds ~Developed + Agriculture + Forest + Marsh + delta_freshwater,
-                      data=TrdRast_model_red@data, correlation=corExp(form=~xy_red[,1]+xy_red[,2]))
-summary(gls.exp_threat)
-
-
-##--- 2.10.2 Chao1_blacks      ---####
-##--------------------------------####
-summary(gls.exp.b_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                              delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                              delta_ofg_urban + delta_freshwater ,
-                            data=TrdRast_model_black@data, correlation=corExp(form=~xy_black[,1]+xy_black[,2])))
-summary(gls.gauss.b_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                                delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                                delta_ofg_urban + delta_freshwater ,
-                              data=TrdRast_model_black@data, correlation=corGaus(form=~xy_black[,1]+xy_black[,2])))
-summary(gls.spher.b_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                                delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                                delta_ofg_urban + delta_freshwater ,
-                              data=TrdRast_model_black@data, correlation=corSpher(form=~xy_black[,1]+xy_black[,2])))
-summary(gls.lin.b_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                              delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                              delta_ofg_urban + delta_freshwater ,
-                            data=TrdRast_model_black@data, correlation=corLin(form=~xy_black[,1]+xy_black[,2])))
-summary(gls.Ratio.b_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                                delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                                delta_ofg_urban + delta_freshwater ,
-                              data=TrdRast_model_black@data, correlation=corRatio(form=~~xy_black[,1]+xy_black[,2])))
-
-AIC(M2_black, gls.exp.b_black, gls.gauss.b_black, gls.spher.b_black, gls.lin.b_black, gls.Ratio.b_black)
-# All spatial correlations makes a better model.
-# To evaluate which correlation structure is the best one, we can look at the AIC.
-# Since the deltaAIC between the two best models are less than 2, we go for the simplest one: gls.exp
-rm(gls.gauss.b_black, gls.spher.b_black, gls.lin.b_black, gls.Ratio.b_black)
-
-# As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
-# We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
-# the backwards model selection impossible, as the AIC is undefined:
-summary(gls.exp.b_ML_black <- gls(log_chao.blacks ~ Developed + Agriculture + Forest + Freshwater + Marsh + hfgl + ofg_imp + ofg_urban +
-                                 delta_Developed + delta_Agriculture + delta_Forest + delta_Marsh + delta_hfgl + delta_ofg_imp + 
-                                 delta_ofg_urban + delta_freshwater ,
-                               data=TrdRast_model_black@data, correlation=corExp(form=~xy_black[,1]+xy_black[,2]), method = "ML"))
-
-drop1(gls.exp.b_ML_black, test = "Chi")
-stepAIC(gls.exp.b_ML_black)              # For unknown reasons, the standard 'step()' doesn't work - this one does
-
-# According to the SAC-function, the optimal model is:
-# gls(log_chao.blacks ~ Agriculture + Marsh + ofg_urban + delta_Developed)
-# This is somewhat similar to the optimal model for the non-spatial approach!
-
-gls.exp_alien_black <- gls(log_chao.blacks ~ Agriculture + Marsh + ofg_urban + delta_Developed,
-                     data=TrdRast_model_black@data, correlation=corExp(form=~xy_black[,1]+xy_black[,2]))
-summary(gls.exp_alien_black)
-
-
-
-##--- 2.10.4 Map showing richness estimatings based on the spatial models (threatened and alien species) ---####
-##--- 2.10.4.1 Making predictions from models                                                            ---####
-##----------------------------------------------------------------------------------------------------------####
-
-# Now we want to try and make predictions on the number of either threatened or alien species based on
-# the spatial models.
-# For that, we need a dataset with the variables included in the model(s): the landcover data (percentage of cover)
-# for all of Trondheim. 
-
-# Creating a new dataframe with joined categories (first summing, then calculating relative area afterwards)
-data_predict <- TrdRast_AR5[, c(1, 3:68)]
-data_predict@data$total_area <- rowSums(data_predict@data[, 2:67])
-
-# Sum the 'interesting' habitat types, and remove the uninteresting ones:
-data_predict@data$Developed <- rowSums(data_predict@data[, c(2:3)])
-data_predict@data$Agriculture <- rowSums(data_predict@data[, c(41:42,64:66)])
-data_predict@data$Forest <- rowSums(data_predict@data[, c(4:39)])
-data_predict@data$Marsh <- rowSums(data_predict@data[, c(47:55)])
-data_predict@data$hfgl <- rowSums(data_predict@data[, c(43:46)])
-data_predict@data$ofg_imp <- rowSums(data_predict@data[, c(59:61)])
-data_predict@data$ofg_urban <- rowSums(data_predict@data[, c(57:58,62:63)])
-
-data_predict <- data_predict[, -c(2:39, 41:55, 57:66)]
-data_predict@data <- data_predict@data[,c(1, 5:12, 2:4)]    # Rearrange order of columns
-
-# Recalculate all areas as percentage of total cell area:
-for(i in 1:dim(data_predict@data)[1]) {
-  for(j in 3:12) {
-    data_predict@data[i,j] = (data_predict@data[i,j])/(data_predict@data[i,"total_area"])
-  }
-}
-
-# Remove rows with NA (cells outside of Trondheim):
-data_predict <- data_predict[!is.na(data_predict$total_area),]
-
-# Merge the needed datasets:
-data_predict@data <- merge(data_predict@data, TrdRast_2012@data[,c(1,4:12)], by="Pixelnr", all.x=TRUE)
-
-# Calculate the change in the different landcover types in each cell. 
-data_predict$delta_Developed <- data_predict@data$Developed - data_predict@data$Developed.2012
-data_predict$delta_Agriculture <- data_predict@data$Agriculture - data_predict@data$Agriculture.2012
-data_predict$delta_Forest <- data_predict@data$Forest - data_predict@data$Forest.2012
-data_predict$delta_hfgl <- data_predict@data$hfgl - data_predict@data$hfgl.2012
-data_predict$delta_ofg_imp <- data_predict@data$ofg_imp - data_predict@data$ofg_imp.2012
-data_predict$delta_ofg_urban <- data_predict@data$ofg_urban - data_predict@data$ofg_urban.2012
-data_predict$delta_freshwater <- data_predict@data$Freshwater - data_predict@data$Freshwater.2012
-data_predict$delta_ocean <- data_predict@data$Ocean - data_predict@data$Ocean.2012
-data_predict$delta_Marsh <- data_predict@data$Marsh - data_predict@data$Marsh.2012
-
-# Remove grid cells covered only by ocean - these are useless in this model:
-data_predict <- data_predict[!data_predict@data$Ocean==1,]
-
-### Make the predictions for threatened and alien species:
-data_predict$predict_reds <- predict(gls.exp_threat_red, newdata=data_predict)
-data_predict$predict_blacks <- predict(gls.exp_alien_black, newdata=data_predict)
-
-range(data_predict$predict_reds)
-range(data_predict$predict_blacks)
-
-
-# The map has not been made as it was completely out of bounds
-
-
-
 ##--- 4. ORDINATION OF THE LAND COVER ---####
 ##---------------------------------------####
 
@@ -1976,49 +1480,7 @@ range(data_predict$predict_blacks)
 # However, the clustering looks promising, and is what I'll continue with here, potentially coupled with some Indicator Species
 # Analysis.
 
-# The dataset I will use is the entire grid of Trondheim minus the cells only covered in ocean:
-
-##--- 4.1 OUTCOMMENTED CODE FOR THE PCA ####
-##--------------------------------------####
-#pca_data3 <- subset(TrdRast_AR5@data, !Ocean==total_area)
-
-# Clean up and remove unnecessary columns:
-#pca_data3[is.na(pca_data3)] <- 0
-#rownames(pca_data3) <- pca_data3[,1]                          # Make Pixelnr the rownames
-#pca_data3[,1] <- NULL
-#pca_data3 <- pca_data3[,-c(1,68:81)]                          # Only retain the habitat variables
-#pr3 <- prcomp(pca_data3, scale=T)
-
-#summary(pr3)
-#pr3$rotation
-#barplot(100*summary(pr3)$importance[2,], ylab="% variance", las=2, cex.names=0.5,
-#        col=c(rep("skyblue", 9), rep("dodgerblue", 14), rep("blue3", 17), rep("navy", 26)))
-#legend("topright", legend = c("Cumulative 26%", "Cumulative 50%", "Cumulative 75%", "Cumulative 100%"),
-#       fill=c("skyblue", "dodgerblue", "blue3", "navy"))
-#biplot(pr3, cex=0.6, scale=0, col=c("black", "red"))
-#biplot(pr3, choices=c(1,3), cex=.6, scale=0, col=c("black", "red"))
-
-# Function for seeing the PCA-loadings - specify the PCA-object and which dimension is to be shown,
-# then the function will show it in decreasing order:
-#PC <- function(principal_component, dimension){
-#    principal_component_x <- principal_component$rotation[,dimension]
-#    print(principal_component_x[order(abs(principal_component_x), decreasing = T)])
-#}
-
-#PC(pr, 1)
-
-#PC1 <- as.data.frame(pr2$x[,1])
-#PC1 <- data.frame(PC1 = pr2$x[,1])
-#PC1$Pixelnr <- rownames(PC1)
-
-#TrdRast_model@data <- merge(TrdRast_model@data, PC1, by="Pixelnr")
-#names(TrdRast_model)
-
-#plot(Trondheim)
-#plot(TrdRast_model, col=(TrdRast_model$PC1 + abs(min(TrdRast_model$PC1))), add=T)
-
-
-##--- 4.2 CLUSTER ANALYSIS ---####
+##--- 4.1 CLUSTER ANALYSIS ---####
 ##----------------------------####
 library(vegan)
 # Get the needed data: (a copy of the original dataframe, so that we do not mess up too much), then remove cells not within
@@ -2036,7 +1498,7 @@ abline(h=0.99, col="red", lty=2)
 #abline(h=0.9, col="red", lty=2)
 #abline(h=0.85, col="red", lty=2)
 
-##--- 4.2.1 ClusterCut 1 ---####
+##--- 4.1.1 ClusterCut 1 ---####
 ##--------------------------####
 # Try and cot the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
 # (thus, relatively arbitrary for now):
@@ -2106,7 +1568,7 @@ axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 # This is potentially a reasonable number of clusters!
 
-##--- 4.2.2 ClusterCut 2 ---####
+##--- 4.1.2 ClusterCut 2 ---####
 ##--------------------------####
 # Try and cut the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
 # (thus, relatively arbitrary for now):
@@ -2204,7 +1666,7 @@ axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 # as an important group?
 
 
-##--- 4.2.3 ClusterCut 3 ---####
+##--- 4.1.3 ClusterCut 3 ---####
 ##--------------------------####
 # Try and cut the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
 # (thus, relatively arbitrary for now):
@@ -2314,7 +1776,7 @@ axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 
 
-##--- 4.3 INDICATOR "SPECIES" ANALYSIS ---####
+##--- 4.2 INDICATOR "SPECIES" ANALYSIS ---####
 ##----------------------------------------####
 library(indicspecies)
 
@@ -2325,7 +1787,6 @@ comm <- TrdRast_clust@data[, c(3:68)]
 cluster <- TrdRast_clust@data$clusterCut
 
 comm.test <- comm[seq(1, nrow(comm), 2), ]
-cluster.test <- cluster[seq(1, length(cluster), 2)]
 
 # Run the Indicator Value function:
 indval <- multipatt(comm, cluster, control = how(nperm = 99))
@@ -2362,8 +1823,10 @@ write.table(TrdRast_clust@data$col.clust, "colour_clust.txt", sep="\t")
 ### colour_vec <- as.character(colour_clust$x)
 ### mapview(TRD_clust, col.regions=as.character(colour_vec), alpha.regions=0.2)
 
-##--- 4.4 SPINE PLOTS ---####
-##-----------------------####
+
+##--- 4.3 SPINE PLOTS                 ---####
+##--- 4.3.1 The 30 Indicator habitats ---####
+##---------------------------------------####
 
 # To make spine plots of the the habitats in the categories (to get an overview what is actually important),
 # I'll try and make some spineplots. For that, I need to make a dataframe with cluster as column and habitat as rows.
@@ -2413,11 +1876,47 @@ legend("center", legend=c("Communications/traffic", "Developed area", "Forest, c
               "lightcyan", "cyan", "cyan2", "cyan3", "navy",
               "darkseagreen", "gray20", "gray90", "gray70", "sandybrown", "peru"), cex=0.75)
 
+##--- 4.3.2 All 66 Indicator habitats ---####
+##---------------------------------------####
 
-# For the modelling: either do it with "cluster" as predictor variables (log(S.chao) ~ cluster) or use the ISA to pick out
-# habitat variables - try out both, as I am not quite sure what the best approach would be
+# Make a dataframe with cluster as column and habitat as rows.
+# In each entry is then the average of that habitat type for all cells within that cluster.
+spine_all <- matrix(nrow=12, ncol = 66)
+colnames(spine_all) <- colnames(TrdRast_AR5@data[3:68])
+rownames(spine_all) <- c(1:12)
+# Calculate the mean of habitat in the grid cells included in each cluster:
+for(i in 1:dim(spine_all)[1]) {
+  for(j in 1:dim(spine_all)[2]) {
+    spine_all[i,j] = mean(TrdRast_clust@data[TrdRast_clust@data$clusterCut==i, colnames(spine_all)[j]])
+  }
+}
+spine_all <- spine_all[-9,]
 
-##--- 4.5 BETTER PLOTS FOR POTENTIAL PUBLICATION ---####
+layout(t(1:2),widths=c(2,1))
+par(mar=c(5.1,1.1,4.1,2.1))
+spineplot(spine_all, main="",
+          col = c("hotpink", "lightpink", rep("forestgreen", 15), rep("darkolivegreen1", 11),
+                  rep("darkolivegreen3", 10), "dodgerblue", rep("darkorange",2), rep("khaki1", 4),
+                  rep("cyan", 9), "navy", rep("sandybrown", 7),
+                  rep("gold",3), "gray"),
+          xlab="Cluster", ylab="Mean cover of habitat in grid cells",
+          xaxlabels = c("1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"), yaxlabels = "")
+
+par(mar=c(0.5,0.5,0.5,0.5))
+plot(0,type='n',axes=FALSE,ann=FALSE)
+legend("center", legend=c("Communications/traffic", "Developed area",
+                          "Forest, coniferous", "Forest, deciduous", "Forest, mix",
+                          "Freshwater", "Fully cultivated land",
+                          "Hfgl ('Innmarksbeite')", "Marsh,", "Ocean",
+                          "Ofg ('Åpen fastmark')", "Superficially cultivated land", "NA"),
+       fill=c("hotpink", "lightpink", "forestgreen", "darkolivegreen1",
+              "darkolivegreen3", "dodgerblue", "darkorange", "khaki1",
+              "cyan", "navy", "sandybrown",
+              "gold", "gray"), cex=0.75)
+
+# The two plots are very much alike, so luckily nothing massively changes by showing one over the other
+
+##--- 4.4 BETTER PLOTS FOR POTENTIAL PUBLICATION ---####
 ##--------------------------------------------------####
 
 # Grid cells coloured accourding to cluster:
@@ -2437,7 +1936,7 @@ axis(4,cex.axis=0.8, mgp=c(0,.5,0), at=seq(0, 11.5, by=1), las=2, cex.axis=0.6,
 
 
 
-##--- 4.6 MODELLING WITH CLUSTERS (categorical predictor) ---####
+##--- 4.5 MODELLING WITH CLUSTERS (categorical predictor) ---####
 ##-----------------------------------------------------------####
 # First I'll try out building the models on a categorical predictor variabel: Cluster.
 # Add the needed data to the dataframe, adn remove the Ringve outlier (if needed):
@@ -2455,7 +1954,7 @@ levels(TrdRast_model2@data$clusterCut)
 # It is important to note here that category 10 (ofg_bedrock) is not present in the data set
 
 
-##--- 4.6.1 DATA EXPLORATION                       ---####
+##--- 4.5.1 DATA EXPLORATION                       ---####
 ##----------------------------------------------------####
 source("HighstatLibV10.R")
 
@@ -2490,8 +1989,8 @@ Myxyplot(TrdRast_model2@data, MyVar, "S.chao1_blacks_2013",
 
 
 
-##--- 4.6.2 PRELIMINARY MODELLING (NON-SPATIAL)  ---####
-##--- 4.6.2.1 Model 1 - threatened species       ---####
+##--- 4.5.2 PRELIMINARY MODELLING (NON-SPATIAL)  ---####
+##--- 4.5.2.1 Model 1 - threatened species       ---####
 ##--------------------------------------------------####
 M1_clust <- glm(log_chao.reds ~  clusterCut ,
              family = "gaussian",
@@ -2540,7 +2039,7 @@ plot(M1_emm, comparisons=TRUE)
 cld(M1_emm)
 coef(pairs(M1_emm))
 
-##--- 4.6.2.2 Model 2 - alien species ---####
+##--- 4.5.2.2 Model 2 - alien species ---####
 ##---------------------------------------####
 M2_clust <- glm(log_chao.blacks ~  clusterCut,
              family = "gaussian",
@@ -2584,8 +2083,8 @@ plot(M2_emm, comparisons=TRUE)
 cld(M2_emm)
 coef(pairs(M2_emm))
 
-##--- 4.6.3 SPATIAL AUTOCORRELATION- threatened species ---####
-##--- 4.6.3.1 Testing for SAC - Chao1_reds              ---####
+##--- 4.5.3 SPATIAL AUTOCORRELATION- threatened species ---####
+##--- 4.5.3.1 Testing for SAC - Chao1_reds              ---####
 ##---------------------------------------------------------####
 library(spdep)
 library(ncf)
@@ -2663,7 +2162,7 @@ plot(sp.corr_clust)
 # We thus have SAC in the data and in the models
 
 
-##--- 4.6.3.2 Testing for SAC - Chao1_blacks             ---####
+##--- 4.5.3.2 Testing for SAC - Chao1_blacks             ---####
 ##----------------------------------------------------------####
 
 # Make a plot to visualize - some autocorrelation is detectable:
@@ -2696,9 +2195,9 @@ GlobMT2_clust
 # No SAC in this model either
 
 
-##--- 4.6.4 DEALING WITH SAC ---####
+##--- 4.5.4 DEALING WITH SAC ---####
 ##------------------------------####
-##--- 4.6.4.1 Chao1_reds     ---####
+##--- 4.5.4.1 Chao1_reds     ---####
 ##------------------------------####
 
 # To deal with the spatial autocorrelation, we can use a GLS with an added correlation structure - we thus also
@@ -2730,7 +2229,7 @@ plot(M1.sp_emm, comparisons=TRUE)
 cld(M1.sp_emm)
 coef(pairs(M1.sp_emm))
 
-##--- 4.6.4.2 Chao1_blacks    ---####
+##--- 4.5.4.2 Chao1_blacks    ---####
 ##-------------------------------####
 
 # To deal with the spatial autocorrelation, we can use a GLS with an added correlation structure - we thus also
@@ -2759,7 +2258,7 @@ plot(M2.sp_emm, comparisons=TRUE)
 cld(M2.sp_emm)
 
 
-##--- 4.6.5 Boxplots of the model data and comparisons ---####
+##--- 4.5.5 Boxplots of the model data and comparisons ---####
 ##--------------------------------------------------------####
 # Threatened
 par(mfrow=c(2,1))
@@ -2777,8 +2276,8 @@ boxplot(log_chao.blacks~clusterCut, data=TrdRast_model2,
 text (c(1:10), y = 3.8, labels = c("AB", "A", "ABC", "BC", "C", "BC", "ABC", "ABC", "ABC", "ABC"))
 
 
-##--- 4.6.6 Map showing richness estimatings based on the spatial models (threatened and alien species) ---####
-##--- 4.6.6.1 Making predictions from models                                                            ---####
+##--- 4.5.6 Map showing richness estimatings based on the spatial models (threatened and alien species) ---####
+##--- 4.5.6.1 Making predictions from models                                                            ---####
 ##---------------------------------------------------------------------------------------------------------####
 
 # Now we want to try and make predictions on the number of either threatened or alien species based on
@@ -2803,7 +2302,7 @@ range(data_predict_clust$predict_blacks)
 # These predictions seem more reasonable than some of the previous ones (still not optimal though)
 
 
-##--- 4.6.6.2 Make the vectors with colour names           ---####
+##--- 4.5.6.2 Make the vectors with colour names           ---####
 ##------------------------------------------------------------####
 # Get the numbers to base the colour on:
 col_ESR_red_vec <- c(TrdRast_model2@data$log_chao.reds)
@@ -2871,7 +2370,7 @@ for(i in 1:length(col_pred_black_vec)){
 }
 
 
-##--- 2.6.5.2 Make the maps                                ---####
+##--- 4.5.6.2 Make the maps                                ---####
 ##------------------------------------------------------------####
 #par(mfrow=c(2,2))
 #par(mar=c(0.5,0.5,6,1))
