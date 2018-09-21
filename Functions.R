@@ -482,6 +482,10 @@ rm(M2_ns)
 rm(M2_pp)
 rm(MC_ns)
 rm(sp.corr_ns)
+<<<<<<< HEAD
 rm(spdf_m)
 
 # This is just a random line to test the "push" in git 
+=======
+rm(spdf_m)
+>>>>>>> ac1783415a4b6c5dcfe74b4d496af5a5d06be00c
