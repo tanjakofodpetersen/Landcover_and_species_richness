@@ -1786,8 +1786,6 @@ library(indicspecies)
 comm <- TrdRast_clust@data[, c(3:68)]
 cluster <- TrdRast_clust@data$clusterCut
 
-comm.test <- comm[seq(1, nrow(comm), 2), ]
-
 # Run the Indicator Value function:
 indval <- multipatt(comm, cluster, control = how(nperm = 99))
 summary(indval)
@@ -1832,7 +1830,7 @@ write.table(TrdRast_clust@data$col.clust, "colour_clust.txt", sep="\t")
 # I'll try and make some spineplots. For that, I need to make a dataframe with cluster as column and habitat as rows.
 # In each entry is then the average of that habitat type for all cells within that cluster.
 # We'll only use the ones that popped out as significant in the ISA:
-spine <- matrix(nrow=12, ncol = 30)
+spine <- matrix(nrow=12, ncol = nrow(indval$sign[indval$sign[,"p.value"]<=0.05,]))
 colnames(spine) <- row.names(indval$sign[indval$sign[,"p.value"]<=0.05,])
 rownames(spine) <- c(1:12)
 # Calculate the mean of habitat in the grid cells included in each cluster:
@@ -2402,4 +2400,52 @@ plot(TrdRast_model2[, "log_chao.blacks"],
 DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell")
 plot(data_predict,
      col=col_pred_black, border=col_pred_black, add=T, cex.main=0.75)
+
+
+##--- 7. ADD MORE NEEDED VARIABLED FOR THE MODELS ---####
+##---------------------------------------------------####
+
+# The models are clearly missing something, especially as the division into 10 discrete categories obviously is too
+# coarse to predict anything reasonable about the data.
+# The suggested extra variables are: Habitat heterogeneity (this can either be relatively simple measure of
+# numbre of different habitats within the grid cell, or it can be a measure of evenness) and aspect (I will get
+# the data from Marc - I will then have to figure out how to incorporate this on the relatively coarse scale
+# of the analyses)
+
+##--- 7.1 HABTAT HETEROGENEITY/EVENESS            ---####
+##---------------------------------------------------####
+
+# Here we might use either the number of habitats or a measure of evenness. For the the number of land cover types
+# in each grid cell:
+TrdRast_clust$nhabitat <- specnumber(TrdRast_clust@data[,c(3:68)])
+
+# Get an overview of the distribution of number of habitats:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(TrdRast_clust@data$nhabitat)
+
+# We can calculate the "evenness" of the habitat as Pielou's evenness, which is calculated as the Shannon index
+# divided by log(richness) (method taken from the vegan-package description:
+# https://cran.r-project.org/web/packages/vegan/vignettes/diversity-vegan.pdf )
+TrdRast_clust$Evenness <- (diversity(TrdRast_clust@data[,c(3:68)]))/log(TrdRast_clust@data$nhabitat)
+
+# The interpretation of Pielou's Evenness: "J is constrained between 0 and 1. The less evenness in communities
+# between the species (and the presence of a dominant species), the lower J is. And vice versa."
+# In this calculation, we get NaN if only 1 habitat type is available  (because we need to divide 0 with 0)
+# We need to give this a value - it would be reasonable to eithe use 1 or 0.
+# For now, I'll give them the value 0 (extremely uneven) - the cells in question are either all freshwater,
+# cultivated land or on the edge of the grid
+TrdRast_clust@data$Evenness[is.na(TrdRast_clust@data$Evenness)] <- 0
+
+# Get an overview of the distribution of number of habitats:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(TrdRast_clust@data$Evenness)
+
+
+##--- 7.2 ASPECT ---####
+##------------------####
+
+# Needs to be added - talk to Marc!
+
 
