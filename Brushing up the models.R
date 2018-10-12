@@ -1489,18 +1489,35 @@ TrdRast_clust <- TrdRast_AR5
 TrdRast_clust <- TrdRast_clust[!is.na(TrdRast_clust@data$total_area),]
 TrdRast_clust <- TrdRast_clust[!(TrdRast_clust@data$Ocean==TrdRast_clust@data$total_area),]
 
+# Recalculate the the habitat cover as proportion of grid cell rather than square meters:
+TrdRast_clust_rel <- TrdRast_clust
+for(i in 1:dim(TrdRast_clust_rel@data)[1]) {
+  for(j in 3:68) {
+    TrdRast_clust_rel@data[i,j] = (TrdRast_clust_rel@data[i,j])/(TrdRast_clust_rel@data[i,"total_area"])
+  }
+}
+
 # Make the cluster-dendrogram based on a distance matrix with Bray-Curtis similarity 
 clusters <- hclust(vegdist(TrdRast_clust@data[, 3:68], method="bray"))
 par(mfrow=c(1,1))
 par(mar=c(4.1,4.1,5.1,2.1))
-plot(clusters, cex=0.5, main="", xlab="Grid cell number")
+plot(clusters, cex=0.5, main="Raw area (m^2)", xlab="Grid cell number")
 abline(h=0.99, col="red", lty=2)
 #abline(h=0.9, col="red", lty=2)
 #abline(h=0.85, col="red", lty=2)
 
+# Make the cluster-dendrogram based on a distance matrix with Bray-Curtis similarity for the relative area
+# and compare it to the calculations for the raw area, to asses potential differences (later block of code):
+clusters_rel <- hclust(vegdist(TrdRast_clust_rel@data[, 3:68], method="bray"))
+par(mfrow=c(1,1))
+par(mar=c(4.1,4.1,5.1,2.1))
+plot(clusters_rel, cex=0.5, main="Relative area (%)", xlab="Grid cell number")
+abline(h=0.99, col="red", lty=2)
+
+
 ##--- 4.1.1 ClusterCut 1 ---####
 ##--------------------------####
-# Try and cot the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
+# Try and cut the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
 # (thus, relatively arbitrary for now):
 clusterCut <- cutree(clusters, h=0.99)
 table(clusterCut)
@@ -1776,6 +1793,61 @@ axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 
 
+##--- 4.1.1 ClusterCut Relative area ---####
+##--------------------------------------####
+# Try and cut the dendrogram into clusters - the height of the cut is made solely with eye for the number of categories
+# (thus, relatively arbitrary for now):
+clusterCut_rel <- cutree(clusters_rel, h=0.99)
+table(clusterCut_rel)
+
+clusterCut_rel <- as.data.frame(clusterCut_rel)  # For reasons I do not understand, the rownumbers no longer
+                                                 # correspond to the pixelnr - therefore we have to use the pixelnr
+                                                 # from the clusterCut-df in the following:
+clusterCut_rel$Pixelnr <- rownames(clusterCut)
+
+table(clusterCut$clusterCut)
+table(clusterCut_rel$clusterCut)
+# We here see that we have quite a few differences between the two - we'll continue the comparisons in the following
+
+TrdRast_clust_rel <- merge(TrdRast_clust_rel, clusterCut_rel, by="Pixelnr")
+
+# Make a column with colours according to the cluster:
+TrdRast_clust_rel$col.clust <- NA
+# Make the vector with colour names (redo this multiple times until the colours are reasonable):
+for(i in 1:length(TrdRast_clust_rel@data$clusterCut_rel)){
+  TrdRast_clust_rel@data$col.clust[i] <- ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==1, paste("blue"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==2, paste("hotpink"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==3, paste("orange"),  #paste("maroon4"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==4, paste("forestgreen"),   #paste("forestgreen"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==5, paste("green"),  #paste("green"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==6, paste("palegreen"),  #paste("palegreen"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==7, paste("peachpuff"),  #paste("peachpuff"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==8, paste("yellow"),  #paste("cyan"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==9, paste("maroon4"),  #paste("goldenrod")
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==10, paste("cyan"),    #paste("yellow")
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==11, paste("red"),    #paste("red"),
+                                                ifelse(TrdRast_clust_rel@data$clusterCut_rel[i]==12, paste("goldenrod"),   #paste("orange"),
+                                                paste("white")))))))))))))
+}
+
+
+
+TrdRast_clust_rel@data$col.clust <- as.factor(TrdRast_clust_rel@data$col.clust)
+
+# Plot the grid coloured according to cluster:
+layout(t(1:2),widths=c(6,1))
+par(mar=c(1,1,3,1))
+plot(TrdRast_clust_rel, main="Clusters_relative habitat cover",
+     col=as.character(TrdRast_clust_rel@data$col.clust))  
+par(mar=c(5,1,5,2.5))
+image(y=1:12,z=t(1:12), col=c("blue", "hotpink", "orange", "forestgreen", "green", "palegreen", "peachpuff",
+                              "yellow", "maroon4", "cyan","red", "goldenrod"),
+      axes=FALSE, main="clusterCut_rel", cex.main=.6)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+
+# This is potentially a reasonable number of clusters!
+
+
 ##--- 4.2 INDICATOR "SPECIES" ANALYSIS ---####
 ##----------------------------------------####
 library(indicspecies)
@@ -1914,13 +1986,74 @@ legend("center", legend=c("Communications/traffic", "Developed area",
 
 # The two plots are very much alike, so luckily nothing massively changes by showing one over the other
 
+# Do the same calculations for the dataframe with relative land cover:
+# Make a dataframe with cluster as column and habitat as rows.
+# In each entry is then the average of that habitat type for all cells within that cluster.
+spine_rel <- matrix(nrow=12, ncol = 66)
+colnames(spine_rel) <- colnames(TrdRast_AR5@data[3:68])
+rownames(spine_rel) <- c(1:12)
+# Calculate the mean of (relative) habitat in the grid cells included in each cluster:
+for(i in 1:dim(spine_rel)[1]) {
+  for(j in 1:dim(spine_rel)[2]) {
+    spine_rel[i,j] = mean(TrdRast_clust_rel@data[TrdRast_clust_rel@data$clusterCut_rel==i, colnames(spine_rel)[j]])
+  }
+}
+
+# Make the spineplot:
+layout(t(1:2),widths=c(2,1))
+par(mar=c(5.1,1.1,4.1,2.1))
+spineplot(spine_rel, main="",
+          col = c("hotpink", "lightpink", rep("forestgreen", 15), rep("darkolivegreen1", 11),
+                  rep("darkolivegreen3", 10), "dodgerblue", rep("darkorange",2), rep("khaki1", 4),
+                  rep("cyan", 9), "navy", rep("sandybrown", 7),
+                  rep("gold",3), "gray"),
+          xlab="Cluster", ylab="Mean cover of (relative) habitat in grid cells",
+          xaxlabels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"), yaxlabels = "")
+
+par(mar=c(0.5,0.5,0.5,0.5))
+plot(0,type='n',axes=FALSE,ann=FALSE)
+legend("center", legend=c("Communications/traffic", "Developed area",
+                          "Forest, coniferous", "Forest, deciduous", "Forest, mix",
+                          "Freshwater", "Fully cultivated land",
+                          "Hfgl ('Innmarksbeite')", "Marsh,", "Ocean",
+                          "Ofg ('Åpen fastmark')", "Superficially cultivated land", "NA"),
+       fill=c("hotpink", "lightpink", "forestgreen", "darkolivegreen1",
+              "darkolivegreen3", "dodgerblue", "darkorange", "khaki1",
+              "cyan", "navy", "sandybrown",
+              "gold", "gray"), cex=0.75)
+
+# Comparison of spineplots between raw area and relative area:
+layout(t(1:3),widths=c(4,1,4))
+par(mar=c(5.1,1.1,4.1,2.1))
+spineplot(spine_all, main="Raw area (m^2)",
+          col = c("hotpink", "lightpink", rep("forestgreen", 15), rep("darkolivegreen1", 11),
+                  rep("darkolivegreen3", 10), "dodgerblue", rep("darkorange",2), rep("khaki1", 4),
+                  rep("cyan", 9), "navy", rep("sandybrown", 7),
+                  rep("gold",3), "gray"),
+          xlab="Cluster", ylab="Mean cover of habitat in grid cells",
+          xaxlabels = c("1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"), yaxlabels = "")
+
+plot(0,type='n',axes=FALSE,ann=FALSE)
+
+par(mar=c(5.1,1.1,4.1,2.1))
+spineplot(spine_rel, main="Relative area (%)",
+          col = c("hotpink", "lightpink", rep("forestgreen", 15), rep("darkolivegreen1", 11),
+                  rep("darkolivegreen3", 10), "dodgerblue", rep("darkorange",2), rep("khaki1", 4),
+                  rep("cyan", 9), "navy", rep("sandybrown", 7),
+                  rep("gold",3), "gray"),
+          xlab="Cluster", ylab="Mean cover of (relative) habitat in grid cells",
+          xaxlabels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"), yaxlabels = "")
+
+
+
+
+
 ##--- 4.4 BETTER PLOTS FOR POTENTIAL PUBLICATION ---####
 ##--------------------------------------------------####
-
 # Grid cells coloured accourding to cluster:
 layout(t(1:2),widths=c(3,1))
 par(mar=c(1,1,3,1))
-plot(TrdRast_clust, main="Clusters (cut=0.99)",
+plot(TrdRast_clust, main="Clusters (cut=0.99) (m^2)",
      col=as.character(TrdRast_clust@data$col.clust))  
 par(mar=c(2,1,5,9))
 image(y=0:11, z=t(0:11), axes=FALSE, main="Cluster", cex.main=0.75,
@@ -1930,6 +2063,23 @@ axis(4,cex.axis=0.8, mgp=c(0,.5,0), at=seq(0, 11.5, by=1), las=2, cex.axis=0.6,
               "(5) Coniferous forest 1", "(6) Coniferous forest 2", "(7) Forest and marsh",
               "(8) Productive coniferous forest", "(10) Open frm ground", "(11) Open firm ground and cultivated land", "(12) Freshwater"))
 
+# To investigate the dominating habitats in each of the clusters (adjust the cluster-number and the dataframes):
+sort(colMeans(TrdRast_clust_rel@data[TrdRast_clust_rel@data$clusterCut_rel==12,c(3:68)]), decreasing = TRUE)
+
+# For the relative land cover:
+layout(t(1:2),widths=c(3,1))
+par(mar=c(1,1,3,1))
+plot(TrdRast_clust_rel, main="Clusters (cut=0.99) (%)",
+     col=as.character(TrdRast_clust_rel@data$col.clust))  
+par(mar=c(2,1,5,9))
+image(y=0:12, z=t(0:12), axes=FALSE, main="Cluster", cex.main=0.75,
+      col=c("blue", "hotpink", "orange", "forestgreen", "green", "palegreen",
+            "peachpuff", "yellow", "maroon4", "cyan", "red", "goldenrod", "white"))
+axis(4,cex.axis=0.8, mgp=c(0,.5,0), at=seq(0, 11.5, by=1), las=2, cex.axis=0.6,
+     labels=c("(1) Coastal", "(2) Urban/traffic", "(3) Cultivated land", "(4) Low-production conif. forest",
+              "(5) Medium-production conif. forest", "(6) Marsh and conif. forest", "(7) High-production conif. forest",
+              "(8) Open firm ground (imp.) and forest", "(9) Open firm ground and \ncultivated land",
+              "(10) Freshwater", "(11) Deciduous forest", "(12) Low-production conif. forest, \nshallow soil"))
 
 
 
@@ -2402,7 +2552,7 @@ plot(data_predict,
      col=col_pred_black, border=col_pred_black, add=T, cex.main=0.75)
 
 
-##--- 7. ADD MORE NEEDED VARIABLED FOR THE MODELS ---####
+##--- 7. ADD MORE NEEDED VARIABLES FOR THE MODELS ---####
 ##---------------------------------------------------####
 
 # The models are clearly missing something, especially as the division into 10 discrete categories obviously is too
@@ -2414,104 +2564,69 @@ plot(data_predict,
 
 ##--- 7.1 HABTAT HETEROGENEITY/EVENESS            ---####
 ##---------------------------------------------------####
+# In the following, I'll do the calculations for both the dataset with raw area of land cover
+# and the relative land cover
 
-# Here we might use either the number of habitats or a measure of evenness. For the the number of land cover types
-# in each grid cell:
+# Here we might use either the number of habitats or a measure of evenness/diversity.
+# For the the number of land cover types in each grid cell:
 TrdRast_clust$nhabitat <- specnumber(TrdRast_clust@data[,c(3:68)])
+TrdRast_clust_rel$nhabitat <- specnumber(TrdRast_clust_rel@data[,c(3:68)])
 
 # Get an overview of the distribution of number of habitats:
-par(mfrow=c(1,1))
+par(mfrow=c(1,2))
 par(mar=c(5.1,4.1,4.1,2.1))
 hist(TrdRast_clust@data$nhabitat)
+hist(TrdRast_clust_rel@data$nhabitat)    # The graphs are identical, as they should be
 
-# We can calculate the "evenness" of the habitat as Pielou's evenness, which is calculated as the Shannon index
-# divided by log(richness) (method taken from the vegan-package description:
-# https://cran.r-project.org/web/packages/vegan/vignettes/diversity-vegan.pdf )
-TrdRast_clust$Evenness <- (diversity(TrdRast_clust@data[,c(3:68)]))/log(TrdRast_clust@data$nhabitat)
-
-# The interpretation of Pielou's Evenness: "J is constrained between 0 and 1. The less evenness in communities
-# between the species (and the presence of a dominant species), the lower J is. And vice versa."
-# In this calculation, we get NaN if only 1 habitat type is available  (because we need to divide 0 with 0)
-# We need to give this a value - it would be reasonable to eithe use 1 or 0.
-# For now, I'll give them the value 0 (extremely uneven) - the cells in question are either all freshwater,
-# cultivated land or on the edge of the grid
-TrdRast_clust@data$Evenness[is.na(TrdRast_clust@data$Evenness)] <- 0
+# We can calculate the diversity of the habitats as Simpson's index of diversity (1-D).
+# This is used rather than Shannon's as it is more intuitive to interpret. I use the (1-D) to
+# get a more intuitive number rather than the simple D (0=no diversity, 1=infinite diversity)
+TrdRast_clust_rel$Divers <- diversity(TrdRast_clust_rel@data[,c(3:68)], index="simpson")
+TrdRast_clust$Divers <- diversity(TrdRast_clust@data[,c(3:68)], index="simpson")
 
 # Get an overview of the distribution of number of habitats:
-par(mfrow=c(1,1))
+par(mfrow=c(1,2))
 par(mar=c(5.1,4.1,4.1,2.1))
-hist(TrdRast_clust@data$Evenness)
+hist(TrdRast_clust@data$Divers)
+hist(TrdRast_clust_rel@data$Divers)    # The graphs are identical, as they should be
 
-# I am uncertain whether these calculations should include all habotats, or only the "indicator" ones
-# Thus, I'll try to calculate the same values for the indicator-habitats and compare them:
-indval$sign[indval$sign[,"p.value"]<=0.05,]  # Use this to find the names of the indicator habitats
-TrdRast_clust$nhabitat.ind <- specnumber(TrdRast_clust@data[,c("Communications_traffic",
-                                                               "Developed_area",
-                                                               "Forest_coniferous_highprod_soil",
-                                                               "Forest_coniferous_impediment_shallow_soil",
-                                                               "Forest_coniferous_impediment_soil",
-                                                               "Forest_coniferous_lowprod_soil",
-                                                               "Forest_coniferous_mediumprod_soil",
-                                                               "Forest_deciduous_highprod_soil",
-                                                               "Forest_deciduous_impediment_organic_soil",
-                                                               "Forest_deciduous_impediment_soil",
-                                                               "Forest_deciduous_mediumprod_soil",
-                                                               "Forest_mix_highprod_soil",
-                                                               "Forest_mix_impediment_shallow_soil",
-                                                               "Forest_mix_impediment_soil",
-                                                               "Forest_mix_mediumprod_organic_soil",
-                                                               "Freshwater",
-                                                               "Fully_cultivated_organic_soil",
-                                                               "Fully_cultivated_soil",
-                                                               "Hfgl_soil",
-                                                               "Marsh_coniferous_impediment",
-                                                               "Marsh_mix_lowprod",
-                                                               "Marsh_open_impediment",
-                                                               "Ocean",
-                                                               "Ofg_highprod_soil",
-                                                               "Ofg_impediment_artificial",
-                                                               "Ofg_impediment_bedrock",
-                                                               "Ofg_impediment_boulder",
-                                                               "Ofg_impediment_shallow_soil",
-                                                               "Ofg_impediment_soil")])
 
-TrdRast_clust$Evenness.ind <- (diversity(TrdRast_clust@data[,c("Communications_traffic",
-                                                               "Developed_area",
-                                                               "Forest_coniferous_highprod_soil",
-                                                               "Forest_coniferous_impediment_shallow_soil",
-                                                               "Forest_coniferous_impediment_soil",
-                                                               "Forest_coniferous_lowprod_soil",
-                                                               "Forest_coniferous_mediumprod_soil",
-                                                               "Forest_deciduous_highprod_soil",
-                                                               "Forest_deciduous_impediment_organic_soil",
-                                                               "Forest_deciduous_impediment_soil",
-                                                               "Forest_deciduous_mediumprod_soil",
-                                                               "Forest_mix_highprod_soil",
-                                                               "Forest_mix_impediment_shallow_soil",
-                                                               "Forest_mix_impediment_soil",
-                                                               "Forest_mix_mediumprod_organic_soil",
-                                                               "Freshwater",
-                                                               "Fully_cultivated_organic_soil",
-                                                               "Fully_cultivated_soil",
-                                                               "Hfgl_soil",
-                                                               "Marsh_coniferous_impediment",
-                                                               "Marsh_mix_lowprod",
-                                                               "Marsh_open_impediment",
-                                                               "Ocean",
-                                                               "Ofg_highprod_soil",
-                                                               "Ofg_impediment_artificial",
-                                                               "Ofg_impediment_bedrock",
-                                                               "Ofg_impediment_boulder",
-                                                               "Ofg_impediment_shallow_soil",
-                                                               "Ofg_impediment_soil")]))/log(TrdRast_clust@data$nhabitat.ind)
+# We can calculate the "evenness" of the habitat as Simpson's evenness, which is calculated as the invsimpson / S
+# (Taken from Morris et al. (2014))
+ TrdRast_clust$Evenness <- (diversity(TrdRast_clust_rel@data[,c(3:68)],
+                                      index="invsimpson"))/TrdRast_clust@data$nhabitat
+ TrdRast_clust_rel$Evenness <- (diversity(TrdRast_clust_rel@data[,c(3:68)],
+                                          index="invsimpson"))/TrdRast_clust_rel@data$nhabitat
+ 
+# The interpretation of Simpsons's Evenness: E is constrained between 0 and 1. The less evenness in communities
+# between the species (here: habitats) (and the presence of a dominant species/habitat),
+ # the lower E is. And vice versa."
+###
 
-TrdRast_clust@data$Evenness.ind[is.na(TrdRast_clust@data$Evenness.ind)] <- 0
+# Compare maps of cluster, number of habitats, diversity and eveness:
+col.habitat <- colorRampPalette(c("white", "red"))
 
-hist(TrdRast_clust@data$nhabitat.ind)
-hist(TrdRast_clust@data$Evenness.ind)
+par(mfrow=c(2,3))
+plot(TrdRast_clust, main="Cluster (area m^2)",
+     col=as.character(TrdRast_clust@data$col.clust))    # Cluster, area
+plot(TrdRast_clust_rel, main="Cluster (%)",
+     col=as.character(TrdRast_clust_rel@data$col.clust))    # Cluster, %
+plot(0,type='n',axes=FALSE,ann=FALSE)
+palette(col.habitat(20))
+plot(TrdRast_clust, main="#  habitats",
+     col=TrdRast_clust@data$nhabitat)    # Number of land cover types
+palette(col.habitat(10))
+plot(TrdRast_clust, main="Habitat diversity",
+     col=TrdRast_clust@data$Divers*10)    # Habitat diversity
+palette(col.habitat(10))
+plot(TrdRast_clust, main="Habitat evenness",
+     col=TrdRast_clust@data$Evenness*10)    # Habitat evenness
+
 
 ##--- 7.2 ASPECT ---####
 ##------------------####
+# In the following, I'll do the calculations for both the dataset with raw area of land cover
+# and the relative land cover
 
 # Load the .tiff-file from Marc (25*25m solution, utm33-projection) (it needs to be unzipped first)
 aspect <- raster("aspect_trondheim_25meter_utm33.tif")
@@ -2520,84 +2635,84 @@ aspect@crs
 par(mfrow=c(1,2))
 plot(aspect)
 
-# Change the crs to match the rest of the data:
-asp_TRD <- projectRaster(aspect, crs="+proj=utm +zone=32 +datum=WGS84 +units=m +vunits=m +no_defs", method="ngb") 
-            # the "ngb" is necessary, otherwise the values change due to warping of the cells, and the necesity
-            # of interpolation between the values - this defines another interpolation method
-asp_TRD@crs
-summary(asp_TRD)
-plot(asp_TRD)       # We can see a difference - a slight "tilt"
+# Make a new RasterLayer with "Northness/Southness" rather than aspect (to make it non-circular)
+      # 0-180:    aspect/180
+      # 180-360:  
+northness <- cos(aspect*pi/180)
+plot(northness)
 
-# Since the values change slightly when we reproject, we might be better of using the aspect categorically,
-# rather than numerically
+# Extract the northness values by the grid-polygons  (obs: the polygons are CRS-transformed to matc the raster):
+Trd_northness_rel <- raster::extract(northness, TrdRast_clust_rel)
+Trd_northness <- raster::extract(northness, TrdRast_clust)
 
-# Extract the mean aspect for each of our grid cells, and add it to the TrdRast_clust dataframe:
-asp_grid <- raster::extract(asp_TRD, TrdRast_clust, fun=mean)
-TrdRast_clust$asp.mean <- asp_grid
+# Have a look at the data
+View(t(as.data.frame(lapply(Trd_northness_rel, quantile))))
+View(as.data.frame(sapply(Trd_northness_rel, mean)))
 
-# Have a look and compare with raster-map
-plot(asp_TRD)
-palette(terrain.colors(10))
-plot(TrdRast_clust, col=(TrdRast_clust@data$asp.mean+1))
+# Add mean "northness" of each grid cell to the data frames
+TrdRast_clust_rel$north.mean <- sapply(Trd_northness_rel, mean)
+TrdRast_clust$north.mean <- sapply(Trd_northness, mean)
 
-# Add the aspect as a categorical variable:
-TrdRast_clust$asp.cat <- ifelse(TrdRast_clust@data$asp.mean < 0, "Flat",
-                                ifelse(TrdRast_clust@data$asp.mean >= 0 & TrdRast_clust@data$asp.mean< 22.5, "N",
-                                ifelse(TrdRast_clust@data$asp.mean >= 22.5 & TrdRast_clust@data$asp.mean < 67.5, "NE",
-                                ifelse(TrdRast_clust@data$asp.mean >= 67.5 & TrdRast_clust@data$asp.mean < 112.5, "E",
-                                ifelse(TrdRast_clust@data$asp.mean >= 112.5 & TrdRast_clust@data$asp.mean < 157.5, "SE",
-                                ifelse(TrdRast_clust@data$asp.mean >= 157.5 & TrdRast_clust@data$asp.mean < 202.5, "S",
-                                ifelse(TrdRast_clust@data$asp.mean >= 202.5 & TrdRast_clust@data$asp.mean < 247.5, "SW",
-                                ifelse(TrdRast_clust@data$asp.mean >= 247.5 & TrdRast_clust@data$asp.mean < 292.5, "W",
-                                ifelse(TrdRast_clust@data$asp.mean >= 292.5 & TrdRast_clust@data$asp.mean < 337.5, "NW",
-                                ifelse(TrdRast_clust@data$asp.mean >= 337.5, "N", NA))))))))))
+# Compare maps
+par(mfrow=c(1,3))
+plot(aspect)
+plot(northness)
+palette(rev(terrain.colors(20)))
+plot(TrdRast_clust_rel, col=(TrdRast_clust_rel@data$north.mean+1)*10)
 
-col.asp <- c(ifelse(TrdRast_clust@data$asp.cat == "Flat", "gray90",
-                    ifelse(TrdRast_clust@data$asp.cat =="N", "red",
-                    ifelse(TrdRast_clust@data$asp.cat == "NE", "orange",
-                    ifelse(TrdRast_clust@data$asp.cat == "E", "yellow",
-                    ifelse(TrdRast_clust@data$asp.cat == "SE", "green",
-                    ifelse(TrdRast_clust@data$asp.cat == "S", "cyan",
-                    ifelse(TrdRast_clust@data$asp.cat == "SW", "dodgerblue",
-                    ifelse(TrdRast_clust@data$asp.cat == "W", "blue",
-                    ifelse(TrdRast_clust@data$asp.cat == "NW", "magenta", NA))))))))))
-par(mfrow=c(1,1))
-plot(TrdRast_clust, col=col.asp, main="Mean aspect")
-legend("topright", legend = c("Flat", "N", "NE", "E", "SE", "S", "SW", "W", "NW"),
-       fill=c("gray90", "red", "orange", "yellow", "green", "cyan", "dodgerblue", "blue", "magenta"), cex=0.75)
+
+# POINT FOR DISCUSSION: What about the "flat" areas? These are now grouped with the north-facing slopes - is this reasonable?
+
+
 
 ##--- 8. MODELS WITH ADDTITIONAL VARIABLES ---####
 ##--------------------------------------------####
-
+# Done for both the datasets with raw area and relative area
 # First prepare the data to only include the cells adequate for modelling:
 TrdRast_clust_model <- TrdRast_clust[TrdRast_clust@data$CoV_2013<=0.25 &     # Only cells with low CoV
                                        TrdRast_clust@data$Ntotal>=10 &       # Only cells with >10 records
                                !is.na(TrdRast_clust@data$CoV_2013), ]        # Only cells with a valid CoV
 
+TrdRast_clust_model_rel <- TrdRast_clust_rel[TrdRast_clust_rel@data$CoV_2013<=0.25 &     # Only cells with low CoV
+                                       TrdRast_clust_rel@data$Ntotal>=10 &       # Only cells with >10 records
+                                       !is.na(TrdRast_clust_rel@data$CoV_2013), ]        # Only cells with a valid CoV
+
 # Replace 'NA's with zeros
 TrdRast_clust_model@data[is.na(TrdRast_clust_model@data)] <- 0
+TrdRast_clust_model_rel@data[is.na(TrdRast_clust_model_rel@data)] <- 0
 
-# Transformation of the response variables (here we have to add a constant to make the calculations, as log(0) is meaningsless):
+# Transformation of the response variables (here we have to add a constant to make the calculations, as log(0) is meaningsless)
+# I here use 0.1 (using 0.001 gave a very low minimum):
+# Raw area:
 TrdRast_clust_model$log_chao.reds <- NA
 TrdRast_clust_model$log_chao.blacks <- NA
 for(i in 1:NROW(TrdRast_clust_model@data)){
-  TrdRast_clust_model@data[i,"log_chao.reds"] <- log(TrdRast_clust_model@data[i,"S.chao1_reds_2013"] + 0.001)
-  TrdRast_clust_model@data[i,"log_chao.blacks"] <- log(TrdRast_clust_model@data[i,"S.chao1_blacks_2013"] + 0.001)
+  TrdRast_clust_model@data[i,"log_chao.reds"] <- log(TrdRast_clust_model@data[i,"S.chao1_reds_2013"] + 0.1)
+  TrdRast_clust_model@data[i,"log_chao.blacks"] <- log(TrdRast_clust_model@data[i,"S.chao1_blacks_2013"] + 0.1)
+}
+
+# Relative area
+TrdRast_clust_model_rel$log_chao.reds <- NA
+TrdRast_clust_model_rel$log_chao.blacks <- NA
+for(i in 1:NROW(TrdRast_clust_model_rel@data)){
+  TrdRast_clust_model_rel@data[i,"log_chao.reds"] <- log(TrdRast_clust_model_rel@data[i,"S.chao1_reds_2013"] + 0.1)
+  TrdRast_clust_model_rel@data[i,"log_chao.blacks"] <- log(TrdRast_clust_model_rel@data[i,"S.chao1_blacks_2013"] + 0.1)
 }
 
 # Remove the Ringve-outlier:
 TrdRast_clust_model <- TrdRast_clust_model[!TrdRast_clust_model@data$Pixelnr==1140,]
+TrdRast_clust_model_rel <- TrdRast_clust_model_rel[!TrdRast_clust_model_rel@data$Pixelnr==1140,]
+
+# Remove one more outlier (the one with around Ranheim with more 65 estimated alien species)
+TrdRast_clust_model <- TrdRast_clust_model[!TrdRast_clust_model@data$Pixelnr==1369,]
+TrdRast_clust_model_rel <- TrdRast_clust_model_rel[!TrdRast_clust_model_rel@data$Pixelnr==1369,]
 
 # Make sure the classes are correct:
-TrdRast_clust_model$S.chao1_reds_2013 <- as.numeric(TrdRast_clust_model$S.chao1_reds_2013)
-TrdRast_clust_model$S.chao1_blacks_2013 <- as.numeric(TrdRast_clust_model$S.chao1_blacks_2013)
-TrdRast_clust_model$log_chao.reds <- as.numeric(TrdRast_clust_model$log_chao.reds)
-TrdRast_clust_model$log_chao.blacks <- as.numeric(TrdRast_clust_model$log_chao.blacks)
 TrdRast_clust_model$clusterCut <- as.factor(TrdRast_clust_model$clusterCut)
-TrdRast_clust_model$nhabitat <- as.numeric(TrdRast_clust_model$nhabitat)
-TrdRast_clust_model$Evenness <- as.numeric(TrdRast_clust_model$Evenness)
-TrdRast_clust_model$asp.mean <- as.numeric(TrdRast_clust_model$asp.mean)
-TrdRast_clust_model$asp.cat <- as.factor(TrdRast_clust_model$asp.cat)
+TrdRast_clust_model_rel$clusterCut_rel <- as.factor(TrdRast_clust_model_rel$clusterCut_rel)
+
+# Rename a column in the relative dataset to make the following code simpler:
+names(TrdRast_clust_model_rel@data)[names(TrdRast_clust_model_rel@data) == 'clusterCut_rel'] <- 'clusterCut'
 
 
 ##--- 8.1 DATA EXPLORATION ---####
@@ -2605,121 +2720,225 @@ TrdRast_clust_model$asp.cat <- as.factor(TrdRast_clust_model$asp.cat)
 source("HighstatLibV10.R")
 
 ### Outliers:
-MyVar <- c("S.chao1_reds_2013", "S.chao1_blacks_2013", "log_chao.reds", "log_chao.blacks",
-           "clusterCut", "nhabitat", "Evenness", "asp.mean", "asp.cat")
+MyVar <- c("log_chao.reds", "log_chao.blacks",
+           "clusterCut", "nhabitat", "Divers", "Evenness", "north.mean")
 
-Mydotplot(TrdRast_clust_model@data[,MyVar])   # Something weird has happened to the axes - I don't know why?
+#Mydotplot(TrdRast_clust_model@data[,MyVar])   # Something weird has happened to the axes - I don't know why?
+###### Dotplots                                 # Potentially make the plots manually - replace the x-variable
+par(mfrow=c(2,4))
+plot(x=TrdRast_clust_model@data$log_chao.reds, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$log_chao.blacks, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=as.numeric(as.character(TrdRast_clust_model@data$clusterCut)), y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$nhabitat, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$Divers, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$Evenness, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$north.mean, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+
+par(mfrow=c(2,4))
+plot(x=TrdRast_clust_model_rel@data$log_chao.reds, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$log_chao.blacks, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=as.numeric(as.character(TrdRast_clust_model_rel@data$clusterCut)), y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$nhabitat, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$Divers, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$Evenness, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$north.mean, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+
+par(mfrow=c(1,2))
+plot(x=TrdRast_clust_model@data$S.chao1_reds_2013, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="", pch=20)
+plot(x=TrdRast_clust_model@data$S.chao1_blacks_2013, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="", pch=20)
+
+
+# The main issue could potentially be the large number of zeros in the estimated species richness
+####
 
 ### Colinearity
 pairs(TrdRast_clust_model@data[, MyVar], 
-      lower.panel = panel.cor)             # As expected, the two measures of aspect are highly colinear, and so are
-                                           # are the S.chao1 and log(chao) - thus, only use one of them
+      lower.panel = panel.cor)             
+pairs(TrdRast_clust_model_rel@data[, MyVar], 
+      lower.panel = panel.cor)                   # As expected, we cannot include botn number of habitats and diversity
+                                                 # Not surprising as one is calculated from the other
+
+corvif(TrdRast_clust_model@data[, MyVar])
+corvif(TrdRast_clust_model_rel@data[, MyVar])    # Some are quite high
 
 ### Relationships
-Myxyplot(TrdRast_clust_model@data, MyVar, "S.chao1_reds_2013", 
-         MyYlab = "ESR of redlisted species")
+Myxyplot(TrdRast_clust_model@data, MyVar, "log_chao.reds", 
+         MyYlab = "ESR of redlisted species (m^2)")
+Myxyplot(TrdRast_clust_model@data, MyVar, "log_chao.blacks", 
+         MyYlab = "ESR of alien species (m^2)")
 
-Myxyplot(TrdRast_clust_model@data, MyVar, "S.chao1_blacks_2013", 
-         MyYlab = "ESR of alien species")
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "log_chao.reds", 
+         MyYlab = "ESR of redlisted species (%)")
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "log_chao.blacks", 
+         MyYlab = "ESR of alien species (%)")
 
+## Manual plotting of the relationships to do some colour-coding ####
+# This is done to investigate some potential interaction between some of the variables
+par(mfrow=c(2,2))
+plot(x=TrdRast_clust_model@data$Divers, y=TrdRast_clust_model@data$log_chao.reds,
+     col=TrdRast_clust_model@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model_rel@data$Divers, y=TrdRast_clust_model_rel@data$log_chao.reds,
+     col=TrdRast_clust_model_rel@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model@data$Evenness, y=TrdRast_clust_model@data$log_chao.reds,
+     col=TrdRast_clust_model@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model_rel@data$Evenness, y=TrdRast_clust_model_rel@data$log_chao.reds,
+     col=TrdRast_clust_model_rel@data$col.clust, pch=19)
+
+plot(x=TrdRast_clust_model@data$Divers, y=TrdRast_clust_model@data$log_chao.blacks,
+     col=TrdRast_clust_model@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model_rel@data$Divers, y=TrdRast_clust_model_rel@data$log_chao.blacks,
+     col=TrdRast_clust_model_rel@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model@data$Evenness, y=TrdRast_clust_model@data$log_chao.blacks,
+     col=TrdRast_clust_model@data$col.clust, pch=19)
+plot(x=TrdRast_clust_model_rel@data$Evenness, y=TrdRast_clust_model_rel@data$log_chao.blacks,
+     col=TrdRast_clust_model_rel@data$col.clust, pch=19)
 
 ##--- 8.1.1   PRELIMINARY MODELLING (NON-SPATIAL) ---####
 ##--- 8.1.1.1  Model 1 - threatened species       ---####
 ##---------------------------------------------------####
-M1_clust <- glm(log_chao.reds ~  clusterCut + nhabitat + Evenness + asp.cat,
+global_M1 <- glm(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
                 family = "gaussian",
                 data = TrdRast_clust_model@data)
+global_M1_rel <- glm(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                family = "gaussian",
+                data = TrdRast_clust_model_rel@data)
 
-summary(M1_clust)   # Obs! cluster1 is the inctercept here, so everything is compared to this one. We need to analyse the potential differences
+### Model validation: Is everything significant?
+step(global_M1)       # Backwards selection using AIC
+step(global_M1_rel)   # Backwards selection using AIC
 
-
-### Model validation 1:   (no overdispersion in Gaussian)
-# Generalized R^2 = (Null deviance - residual deviance)/ Null deviance
-(2493.1 - 1656.3) / 2493.1    # Relatively large, actually
-
-### Model validation 2: Is everything significant?
-drop1(M1_clust, test = "Chi")
-step(M1_clust) #Backwards selection using AIC - the best model is: log_chao.reds ~ clusterCut + Evenness
-
-# Define the "better" model:
-M1.2_clust <- glm(log_chao.reds ~  clusterCut + Evenness,
+# Define the "better" models:
+M1 <- glm(log_chao.reds ~  clusterCut + Divers,
                 family = "gaussian",
                 data = TrdRast_clust_model@data)
+M1_rel <- glm(log_chao.reds ~  clusterCut + Divers,
+          family = "gaussian",
+          data = TrdRast_clust_model_rel@data)
 
-summary(M1.2_clust)
+summary(M1)
+summary(M1_rel)
 
-# Plot residuals vs fitted values (M1)
-F1_clust <- fitted(M1_clust)
-E1_clust <- resid(M1_clust, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+# Plot residuals vs fitted values (M1 and M1_rel)
+F1 <- fitted(M1)
+E1 <- resid(M1, type = "pearson")      
 par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F1_clust, 
-     y = E1_clust,
+plot(x = F1, 
+     y = E1,
      xlab = "Fitted values - M1",
      ylab = "Pearson residuals - M1",
      cex.lab = 1.5)
-abline(h = 0, lty = 2)
+abline(h = 0, lty = 2)                        # Something seems off - there is seemingly a pattern in the residuals
+
+F1_rel <- fitted(M1_rel)
+E1_rel <- resid(M1_rel, type = "pearson")     
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_rel, 
+     y = E1_rel,
+     xlab = "Fitted values - M1",
+     ylab = "Pearson residuals - M1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                         # Something seems off - there is seemingly a pattern in the residuals
 
 # Plot the residuals vs each covariate     
-TrdRast_clust_model@data$E1_clust <- E1_clust
-Myxyplot(TrdRast_clust_model@data, MyVar, "E1_clust")
-TrdRast_clust_model@data$E1_clust <- NULL
+TrdRast_clust_model@data$E1 <- E1
+Myxyplot(TrdRast_clust_model@data, MyVar, "E1")
+TrdRast_clust_model@data$E1 <- NULL
+
+TrdRast_clust_model_rel@data$E1 <- E1_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "E1")
+TrdRast_clust_model_rel@data$E1 <- NULL
 
 # Histogram of the residuals to check is they are Gaussian:
-par(mfrow=c(1,1))
+par(mfrow=c(1,2))
 par(mar=c(5.1,4.1,4.1,2.1))
-hist(E1_clust)
+hist(E1)
+hist(E1_rel)     # Not quite - hopefully, this is due to potential Spatial Autocorrelation
 
 # Compare the predictor variable levels:
 library(multcomp)
-summary(glht(M1_clust, linfct=mcp(clusterCut="Tukey")))
+summary(glht(M1, linfct=mcp(clusterCut="Tukey")))
+summary(glht(M1_rel, linfct=mcp(clusterCut="Tukey")))
+
 
 
 ##--- 8.1.1.2  Model 2 - alien species ---####
 ##----------------------------------------####
-M2_clust <- glm(log_chao.blacks ~  clusterCut + nhabitat + Evenness + asp.cat,
+global_M2 <- glm(log_chao.blacks ~  clusterCut + Divers + Evenness +  north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+global_M2_rel <- glm(log_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                     family = "gaussian",
+                     data = TrdRast_clust_model_rel@data)
+
+### Model validation: Is everything significant?
+step(global_M2)       # Backwards selection using AIC
+step(global_M2_rel)   # Backwards selection using AIC
+
+M2 <- glm(log_chao.blacks ~  clusterCut + Evenness,
                 family = "gaussian",
                 data = TrdRast_clust_model@data)
 
-summary(M2_clust)
-
-### Model validation 1:   (no overdispersion in Gaussian)
-# Generalized R^2 = (Null deviance - residual deviance)/ Null deviance
-(4706.1 - 3386.5) / 4706.1    # Relatively large, actually?
-
-### Model validation 2: Is everything significant?
-drop1(M2_clust, test = "Chi")
-step(M2_clust) #Backwards selection using AIC - the best model is: log_chao.blacks ~ clusterCut + nhabitat + Evenness
-
-# Define the "better" model:
-M2.2_clust <- glm(log_chao.blacks ~  clusterCut + nhabitat + Evenness,
+M2_rel <-  glm(log_chao.blacks ~  clusterCut + Evenness + north.mean,
                 family = "gaussian",
-                data = TrdRast_clust_model@data)
-
-summary(M2.2_clust)
+                data = TrdRast_clust_model_rel@data)
 
 
-# Plot residuals vs fitted values
-F2_clust <- fitted(M2_clust)
-E2_clust <- resid(M2_clust, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+# Plot residuals vs fitted values (M2 and M2_rel)
+F2 <- fitted(M2)
+E2 <- resid(M2, type = "pearson")      
 par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F2_clust, 
-     y = E2_clust,
-     xlab = "Fitted values",
-     ylab = "Pearson residuals",
+plot(x = F2, 
+     y = E2,
+     xlab = "Fitted values - M2",
+     ylab = "Pearson residuals - M2",
      cex.lab = 1.5)
-abline(h = 0, lty = 2)       
+abline(h = 0, lty = 2)                       # Something seems off - there is seemingly a pattern in the residuals
+
+F2_rel <- fitted(M2_rel)
+E2_rel <- resid(M2_rel, type = "pearson")     
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F2_rel, 
+     y = E2_rel,
+     xlab = "Fitted values - M2_rel",
+     ylab = "Pearson residuals - M2_rel",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                       # Something seems off - there is seemingly a pattern in the residuals
 
 # Plot the residuals vs each covariate     
-TrdRast_clust_model@data$E2_clust <- E2_clust
-Myxyplot(TrdRast_clust_model@data, MyVar, "E2_clust")
-TrdRast_clust_model@data$E2_clust <- NULL
+TrdRast_clust_model@data$E2 <- E2
+Myxyplot(TrdRast_clust_model@data, MyVar, "E2")
+TrdRast_clust_model@data$E2 <- NULL
+
+TrdRast_clust_model_rel@data$E2 <- E2_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "E2")
+TrdRast_clust_model_rel@data$E2 <- NULL
 
 # Histogram of the residuals to check is they are Gaussian:
-hist(E2_clust)
+par(mfrow=c(1,2))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E2)
+hist(E2_rel)     # Not quite - hopefully, this is due to potential Spatial Autocorrelation
 
 # Compare the predictor variable levels:
-summary(glht(M2_clust, linfct=mcp(clusterCut="Tukey")))
-
+library(multcomp)
+summary(glht(M2, linfct=mcp(clusterCut="Tukey")))
+summary(glht(M2_rel, linfct=mcp(clusterCut="Tukey")))
 
 
 
@@ -2736,55 +2955,54 @@ col.heat <- heat.colors(max(TrdRast_clust_model$log_chao.reds) + 1)
 palette(rev(col.heat))
 layout(t(1:2),widths=c(6,1))
 par(mar=c(1,1,1,1))
-plot(TrdRast_clust_model, col=(TrdRast_clust_model$log_chao.reds + 6.907755))   # The colours cannot be negative - add the numerical value of the lowest
+plot(TrdRast_clust_model, col=(TrdRast_clust_model$log_chao.reds + 2.302585))   # The colours cannot be negative - add the numerical value of the lowest
 par(mar=c(5,1,5,2.5))
-image(y=(-7):5,z=t((-7):5), col=rev(col.heat), axes=FALSE, main="log(threatened\n+0.01)", cex.main=.6)
+image(y=(-3):4,z=t((-3):4), col=rev(col.heat), axes=FALSE, main="log(threatened\n+0.1)", cex.main=.6)
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+# From pure visual estimation, we seem to have some autocorrelation
 
 # Make a correlogram:
-correlog1_clust <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1_clust), na.rm = T, increment = 1, resamp = 0)
-correlog1.2_clust <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1.2_clust), na.rm = T, increment = 1, resamp = 0)
-
+correlog1 <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1), na.rm = T, increment = 1, resamp = 0)
+correlog1_rel <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1_rel), na.rm = T, increment = 1, resamp = 0)
 
 # Plot the first 20 distance classes
-par(mfrow=c(2,1))
+par(mfrow=c(1,2))
 par(mar=c(5,5,0.1, 0.1))
-plot(correlog1_clust$correlation[1:20], type="b", pch=16, lwd=1.5,
+plot(correlog1$correlation[1:20], type="b", pch=16, lwd=1.5,
      xlab="distance", ylab="Moran's I"); abline(h=0)
-plot(correlog1.2_clust$correlation[1:20], type="b", pch=16, lwd=1.5,
+plot(correlog1_rel$correlation[1:20], type="b", pch=16, lwd=1.5,
      xlab="distance", ylab="Moran's I"); abline(h=0)
 
 # Make a map of the residuals:
-plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1_clust))/2+1.5], pch=19,
-     cex=abs(resid(M1_clust))/max(resid(M1_clust))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1.2_clust))/2+1.5], pch=19,
-     cex=abs(resid(M1.2_clust))/max(resid(M1.2_clust))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1))/2+1.5], pch=19,
+     cex=abs(resid(M1))/max(resid(M1))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1_rel))/2+1.5], pch=19,
+     cex=abs(resid(M1_rel))/max(resid(M1_rel))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
 
 # calculate Moran's I values explicitly for a certain distance, and to test for its significance:
-M1_clust.nb <- dnearneigh(as.matrix(xy_clust[,1:2]), 0, 1500) # Find the neighbors - give lower and upper distance class here
+clust.nb <- dnearneigh(as.matrix(xy_clust[,1:2]), 0, 1500) # Find the neighbors - give lower and upper distance class here
           # OBS! The classes are in euclidian distance (m), thus we need a reasonable distance to define
-          # a neighbouring grid cell. Here, I have chosen to use 1.5 km 
-          # to make it reasonable! Otherwise, use the following list:
-M1_clust.listw <- nb2listw(M1_clust.nb, zero.policy = T)   
+          # a neighbouring grid cell. Here, I have chosen to use 0.5 km - that is the distance from center to center
+          # to make it reasonable!
+clust.listw <- nb2listw(clust.nb, zero.policy = T)   
           # Turns neighbourhood object into a weighted list
 # this next step might take a few minutes to run:
-GlobMT1_clust <- moran.test(residuals(M1_clust), listw=M1_clust.listw, zero.policy = T)
-GlobMT1_clust
+GlobMT1_clust <- moran.test(residuals(M1), listw=clust.listw, zero.policy = T)
+GlobMT1_clust    # Significant
 
-GlobMT1.2_clust <- moran.test(residuals(M1.2_clust), listw=M1_clust.listw, zero.policy = T)
-GlobMT1.2_clust
+GlobMT1_clust_rel <- moran.test(residuals(M1_rel), listw=clust.listw, zero.policy = T)
+GlobMT1_clust_rel   # Significant
 
-# We seemingly have borderline SAC in these model residuals.
+# We seemingly have SAC in these model residuals.
 # Lets have a look at whether there is SAC in the data itself rather than only the residuals:
-moran(TrdRast_clust_model$log_chao.reds, M1_clust.listw, n=length(M1_clust.listw$neighbours),
-      S0=Szero(M1_clust.listw), zero.policy = TRUE)    # Calculate Moran's I
+moran(TrdRast_clust_model$log_chao.reds, clust.listw, n=length(clust.listw$neighbours),
+      S0=Szero(clust.listw), zero.policy = TRUE)    # Calculate Moran's I
 
 # Test for significance:
-moran.test(TrdRast_clust_model$log_chao.reds, M1_clust.listw, randomisation=FALSE,
+moran.test(TrdRast_clust_model$log_chao.reds, clust.listw, randomisation=FALSE,
            alternative = "two.sided", zero.policy = TRUE)     # Using linear regression based logic and assumptions
 
-MC_clust <- moran.mc(TrdRast_clust_model$log_chao.reds, M1_clust.listw,
+MC_clust <- moran.mc(TrdRast_clust_model$log_chao.reds, clust.listw,
                      zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
 par(mfrow=c(1,1))
 par(mar=c(5.1,4.1,4.1,2.1))
@@ -2792,11 +3010,11 @@ plot(MC_clust, main=NULL)     # Our value is way beyond the curve - high levels 
 abline(v=MC_clust$statistic, lty=2, col="red")
 
 # Make a correlogram
-sp.corr_clust2 <- sp.correlogram(M1_clust.nb, TrdRast_clust_model$log_chao.reds, order=8, method="I", zero.policy = TRUE)
+correlog1_data <- sp.correlogram(clust.nb, TrdRast_clust_model$log_chao.reds, order=8, method="I", zero.policy = TRUE)
 par(mar=c(5.1, 4.1, 4.1, 2.1))
-plot(sp.corr_clust2)
+plot(correlog1_data)
 
-# We thus have SAC in the data and borderline SAC in the model residuals
+# We thus have SAC in the data and but only slightly in the model residuals
 
 
 ##--- 8.2.2 Testing for SAC - Chao1_blacks             ---####
@@ -2807,35 +3025,35 @@ col.heat <- heat.colors(max(TrdRast_clust_model$log_chao.blacks) + 1)
 palette(rev(col.heat))
 layout(t(1:2),widths=c(6,1))
 par(mar=c(1,1,1,1))
-plot(TrdRast_clust_model, col=(TrdRast_clust_model$log_chao.blacks + 6.907755)) # The colours cannot be negative - add the numerical value of the lowest
+plot(TrdRast_clust_model, col=(TrdRast_clust_model$log_chao.blacks + 2.302585)) # The colours cannot be negative - add the numerical value of the lowest
 par(mar=c(5,1,5,2.5))
-image(y=-7:6,z=t(-7:6), col=rev(col.heat), axes=FALSE, main="log(alien\n+00.1)", cex.main=.6)
+image(y=-3:4,z=t(-3:4), col=rev(col.heat), axes=FALSE, main="log(alien\n+00.1)", cex.main=.6)
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 # Make a correlogram:
-correlog2_clust <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2_clust), na.rm = T, increment = 1, resamp = 0)
-correlog2.2_clust <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2.2_clust), na.rm = T, increment = 1, resamp = 0)
+correlog2 <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2), na.rm = T, increment = 1, resamp = 0)
+correlog2_rel <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2_rel), na.rm = T, increment = 1, resamp = 0)
 
 # Plot the first 20 distance classes
-par(mfrow=c(2,1))
+par(mfrow=c(1,2))
 par(mar=c(5,5,0.1, 0.1))
-plot(correlog2_clust$correlation[1:20], type="b", pch=16, lwd=1.5,
+plot(correlog2$correlation[1:20], type="b", pch=16, lwd=1.5,
      xlab="distance", ylab="Moran's I"); abline(h=0)
-plot(correlog2.2_clust$correlation[1:20], type="b", pch=16, lwd=1.5,
+plot(correlog2_rel$correlation[1:20], type="b", pch=16, lwd=1.5,
      xlab="distance", ylab="Moran's I"); abline(h=0)
 
 # Make a map of the residuals:
-plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2_clust))/2+1.5], pch=19,
-     cex=abs(resid(M2_clust))/max(resid(M2_clust))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
-plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2.2_clust))/2+1.5], pch=19,
-     cex=abs(resid(M2.2_clust))/max(resid(M2.2_clust))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2))/2+1.5], pch=19,
+     cex=abs(resid(M2))/max(resid(M2))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2_rel))/2+1.5], pch=19,
+     cex=abs(resid(M2_rel))/max(resid(M2_rel))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
 
 # calculate Moran's I values explicitly for a certain distance, and to test for its significance:
-GlobMT2_clust <- moran.test(residuals(M2_clust), listw=M1_clust.listw, zero.policy = T)
-GlobMT2_clust
+GlobMT2 <- moran.test(residuals(M2), listw=clust.listw, zero.policy = T)
+GlobMT2     # Significant SAC
 
-GlobMT2.2_clust <- moran.test(residuals(M2.2_clust), listw=M1_clust.listw, zero.policy = T)
-GlobMT2.2_clust
+GlobMT2_rel <- moran.test(residuals(M2_rel), listw=clust.listw, zero.policy = T)
+GlobMT2_rel   # Significant SAC
 
 # SAC in these model residuals
 
@@ -2847,56 +3065,171 @@ GlobMT2.2_clust
 
 # To deal with the spatial autocorrelation, we can use a GLS with an added correlation structure - we thus also
 # need to figure out what kind of correlation structure is apppriate. I have skipped this step here,
-# as all the preliminary analyses pointed to the exponential correlation structure
+# as all the preliminary analyses pointed to the exponential correlation structure.
+# I canot use the "global model" - the fit is then singular
 require(nlme)
-summary(gls.exp_clust <- gls(log_chao.reds ~  clusterCut + nhabitat + Evenness + asp.cat,
+summary(gls_clust <- gls(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
                              data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls_clust_rel <- gls(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                             data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
 
-AIC(M1_clust, gls.exp_clust)
+
+AIC(global_M1, gls_clust)              # Not significantly better (dAIC < 2)
+AIC(global_M1_rel, gls_clust_rel)      # Significantly better (dAIC > 2)
 
 # As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
+# In this case, we are just checking if the interaction term is still significant (if we add more variables, the fit is singular)
 # We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
 # the backwards model selection impossible, as the AIC is undefined:
-summary(gls.exp_ML_clust <- gls(log_chao.reds ~  clusterCut + nhabitat + Evenness + asp.cat,
+summary(gls_ML_clust <- gls(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
                                 data = TrdRast_clust_model@data,
                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
                                 method = "ML"))
+summary(gls_ML_clust_rel <- gls(log_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                                data = TrdRast_clust_model_rel@data,
+                                correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                                method = "ML"))
 
-drop1(gls.exp_ML_clust, test = "Chi")
+
 library(MASS)
-stepAIC(gls.exp_ML_clust)              # For unknown reasons, the standard 'step()' doesn't work - this one does
+stepAIC(gls_ML_clust)              # For unknown reasons, the standard 'step()' doesn't work - this one does
+stepAIC(gls_ML_clust_rel)
 
-# According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Evenness
-# This is similar to the optimal model for the non-spatial approach
+# According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Divers (+ Evenness)
+# This is similar to the optimal model for the non-spatial approach - however, Evenness is now included in the
+# model with relative land cover
 
-# Define the better model:
-summary(gls.exp_clust_reds <- gls(log_chao.reds ~  clusterCut + Evenness,
-                             data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+# Define the better model(s):
+summary(gls_clust_reds <- gls(log_chao.reds ~  clusterCut + Divers,
+                                  data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls_clust_reds_rel <- gls(log_chao.reds ~  clusterCut + Divers + Evenness,
+                                  data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+AIC(M1, gls_clust_reds)              # Not significantly better (dAIC < 2) 
+AIC(M1_rel, gls_clust_reds_rel)      # Significantly better (dAIC > 2)
 
 
 
 ##--- 8.3.2 Chao1_blacks    ---####
 ##-----------------------------####
-summary(gls.exp.b_clust <- gls(log_chao.blacks ~  clusterCut + nhabitat + Evenness + asp.cat,
+summary(gls.b_clust <- gls(log_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
                                data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls.b_clust_rel <- gls(log_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                               data=TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
 
-AIC(M2_clust, gls.exp.b_clust)
+
+AIC(global_M2, gls.b_clust)               # Significantly better (dAIC > 2)
+AIC(global_M2_rel, gls.b_clust_rel)       # Significantly better (dAIC > 2)
+
 # As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
 # We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
 # the backwards model selection impossible, as the AIC is undefined:
-summary(gls.exp.b_ML_clust <- gls(log_chao.blacks ~  clusterCut + nhabitat + Evenness + asp.cat,
+summary(gls.b_ML_clust <- gls(log_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
                                   data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
+summary(gls.b_ML_clust_rel <- gls(log_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                                  data=TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
 
-drop1(gls.exp.b_ML_clust, test = "Chi")
-stepAIC(gls.exp.b_ML_clust)              # For unknown reasons, the standard 'step()' doesn't work - this one does
+stepAIC(gls.b_ML_clust)        # log_chao.blacks ~ clusterCut + Evenness
+stepAIC(gls.b_ML_clust_rel)    # log_chao.blacks ~ clusterCut
 
-# According to the SAC-function, the best model is: log_chao.blacks ~ clusterCut + nhabitat + Evenness
-# This is somewhat similar to the optimal model for the non-spatial approach!
+# This is not quite similar to the optimal model for the non-spatial approach
 
-# Define the better model:
-summary(gls.exp_clust_blacks <- gls(log_chao.reds ~  clusterCut + nhabitat + Evenness ,
+# Define the better model and compare AIC:
+summary(gls_clust_blacks <- gls(log_chao.blacks ~  clusterCut + Evenness,
                              data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
 
+summary(gls_clust_blacks_rel <- gls(log_chao.blacks ~  clusterCut,
+                                data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+
+AIC(M2, gls_clust_blacks)
+AIC(M2_rel, gls_clust_blacks_rel)
+
+
+##--- 8.3.3 Model validation ---####
+##------------------------------####
+summary(gls_clust_reds)
+summary(gls_clust_reds_rel)
+summary(gls_clust_blacks)
+summary(gls_clust_blacks_rel)
+
+# Plot residuals vs fitted values (gls.exp_clust_reds)
+F1_threat <- fitted(gls_clust_reds)
+E1_threat <- resid(gls_clust_reds, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_threat, 
+     y = E1_threat,
+     xlab = "Fitted values - gls_clust_reds",
+     ylab = "Pearson residuals - gls_clust_reds",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+F1_threat_rel <- fitted(gls_clust_reds_rel)
+E1_threat_rel <- resid(gls_clust_reds_rel, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_threat_rel, 
+     y = E1_threat_rel,
+     xlab = "Fitted values - gls_clust_reds",
+     ylab = "Pearson residuals - gls_clust_reds",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_threat <- E1_threat
+Myxyplot(TrdRast_clust_model@data, MyVar, "Resid_threat")
+# TrdRast_clust_model@data$Resid_threat <- NULL
+
+TrdRast_clust_model_rel@data$Resid_threat <- E1_threat_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "Resid_threat")
+# TrdRast_clust_model_rel@data$Resid_threat <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_threat)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_threat_rel)
+
+# Plot residuals vs fitted values (gls.exp_clust_blacks)
+F1_alien <- fitted(gls_clust_blacks)
+E1_alien <- resid(gls_clust_blacks, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_alien, 
+     y = E1_alien,
+     xlab = "Fitted values - gls_clust_blacks",
+     ylab = "Pearson residuals - gls_clust_blacks",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+F1_alien_rel <- fitted(gls_clust_blacks_rel)
+E1_alien_rel <- resid(gls_clust_blacks_rel, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_alien_rel, 
+     y = E1_alien_rel,
+     xlab = "Fitted values - gls_clust_blacks_rel",
+     ylab = "Pearson residuals - gls_clust_blacks_rel",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_alien <- E1_alien
+Myxyplot(TrdRast_clust_model@data, MyVar, "Resid_alien")
+TrdRast_clust_model@data$Resid_alien <- NULL
+
+TrdRast_clust_model_rel@data$Resid_alien <- E1_alien_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "Resid_alien")
+TrdRast_clust_model_rel@data$Resid_alien <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_alien)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_alien_rel)
 
 
 ##--- 8.4 Making predictions from models                                                            ---####
@@ -2905,18 +3238,28 @@ summary(gls.exp_clust_blacks <- gls(log_chao.reds ~  clusterCut + nhabitat + Eve
 # Now we want to try and make predictions on the number of either threatened or alien species based on
 # the spatial models.
 
-data_predict_clust <- TrdRast_clust[, c(1, 83, 85, 86)]
+data_predict_clust <- TrdRast_clust[, c(1, 83, 85, 86, 87, 88)]
+data_predict_clust_rel <- TrdRast_clust_rel[, c(1, 83, 85, 86, 87, 88)]
 # Remove the grid cells with categories which cannot be used i the model (0 and 10)
 data_predict_clust <- data_predict_clust[!data_predict_clust@data$clusterCut==0,]
 data_predict_clust <- data_predict_clust[!data_predict_clust@data$clusterCut==10,]
 data_predict_clust@data$clusterCut <- as.factor(data_predict_clust@data$clusterCut)
 
-### Make the predictions for threatened and alien species:
-data_predict_clust$predict_reds <- predict(gls.exp_clust_reds, newdata=data_predict_clust)
-data_predict_clust$predict_blacks <- predict(gls.exp_clust_blacks, newdata=data_predict_clust)
+names(data_predict_clust_rel@data)[names(data_predict_clust_rel@data) == 'clusterCut_rel'] <- 'clusterCut'
+data_predict_clust_rel <- data_predict_clust_rel[!data_predict_clust_rel@data$clusterCut==8,]
+data_predict_clust_rel <- data_predict_clust_rel[!data_predict_clust_rel@data$clusterCut==12,]
+data_predict_clust_rel@data$clusterCut <- as.factor(data_predict_clust_rel@data$clusterCut)
 
-range(data_predict_clust$predict_reds)
+### Make the predictions for threatened and alien species:
+data_predict_clust$predict_reds <- predict(gls_clust_reds, newdata=data_predict_clust)
+data_predict_clust_rel$predict_reds <- predict(gls_clust_reds_rel, newdata=data_predict_clust_rel)
+data_predict_clust$predict_blacks <- predict(gls_clust_blacks, newdata=data_predict_clust)
+data_predict_clust_rel$predict_blacks <- predict(gls_clust_blacks_rel, newdata=data_predict_clust_rel)
+
+range(data_predict_clust$predict_reds)        
+range(data_predict_clust_rel$predict_reds)    
 range(data_predict_clust$predict_blacks)
+range(data_predict_clust_rel$predict_blacks)
 
 
 ##--- 8.4.1 Make the vectors with colour names           ---####
@@ -2925,65 +3268,97 @@ range(data_predict_clust$predict_blacks)
 col_ESR_red_vec <- c(TrdRast_clust_model@data$log_chao.reds)
 col_ESR_black_vec <- c(TrdRast_clust_model@data$log_chao.blacks)
 col_pred_red_vec <- c(data_predict_clust@data$predict_reds)
+col_pred_red_vec_rel <- c(data_predict_clust_rel@data$predict_reds)
 col_pred_black_vec <- c(data_predict_clust@data$predict_blacks)
+col_pred_black_vec_rel <- c(data_predict_clust_rel@data$predict_blacks)
 
 # The vectors with colour names needs to have the same range, if the maps are to be comparable
 # Chao1:
 col_ESR_red <- rep(0, length(col_ESR_red_vec))
 for(i in 1:length(col_ESR_red_vec)){
-  col_ESR_red[i] <- ifelse(col_ESR_red_vec[i]>-7 & col_ESR_red_vec[i]<=-5, paste("#7F00FFFF"),
-                           ifelse(col_ESR_red_vec[i]>-5 & col_ESR_red_vec[i]<=-4, paste("#001AFFFF"),
-                                  ifelse(col_ESR_red_vec[i]>-4 & col_ESR_red_vec[i]<=-3, paste("#00B3FFFF"),
-                                         ifelse(col_ESR_red_vec[i]>-3 & col_ESR_red_vec[i]<=-2, paste("#00FFFFFF"),
-                                                ifelse(col_ESR_red_vec[i]>-2 & col_ESR_red_vec[i]<=-1, paste("#00FF19FF"),
-                                                       ifelse(col_ESR_red_vec[i]>-1 & col_ESR_red_vec[i]<=0, paste("#80FF00FF"),
-                                                              ifelse(col_ESR_red_vec[i]>0 & col_ESR_red_vec[i]<=1, paste("#FFE500FF"),
-                                                                     ifelse(col_ESR_red_vec[i]>1 & col_ESR_red_vec[i]<=2, paste("#FF9900FF"),
-                                                                            ifelse(col_ESR_red_vec[i]>2 & col_ESR_red_vec[i]<=3, paste("#FF4D00FF"),
-                                                                                   ifelse(col_ESR_red_vec[i]>3 & col_ESR_red_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
+  col_ESR_red[i] <- ifelse(col_ESR_red_vec[i]>-3 & col_ESR_red_vec[i]<=-1, paste("#7F00FFFF"),
+                           ifelse(col_ESR_red_vec[i]>-1 & col_ESR_red_vec[i]<=0, paste("#001AFFFF"),
+                           ifelse(col_ESR_red_vec[i]>0 & col_ESR_red_vec[i]<=0.5, paste("#00B3FFFF"),
+                           ifelse(col_ESR_red_vec[i]>0.5 & col_ESR_red_vec[i]<=1, paste("#00FFFFFF"),
+                           ifelse(col_ESR_red_vec[i]>1 & col_ESR_red_vec[i]<=1.5, paste("#00FF19FF"),
+                           ifelse(col_ESR_red_vec[i]>1.5 & col_ESR_red_vec[i]<=2, paste("#80FF00FF"),
+                           ifelse(col_ESR_red_vec[i]>2 & col_ESR_red_vec[i]<=2.5, paste("#FFE500FF"),
+                           ifelse(col_ESR_red_vec[i]>2.5 & col_ESR_red_vec[i]<=3, paste("#FF9900FF"),
+                           ifelse(col_ESR_red_vec[i]>3 & col_ESR_red_vec[i]<=3.5, paste("#FF4D00FF"),
+                           ifelse(col_ESR_red_vec[i]>3.5 & col_ESR_red_vec[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
 }
 
 col_ESR_black <- rep(0, length(col_ESR_black_vec))
 for(i in 1:length(col_ESR_black_vec)){
-  col_ESR_black[i] <- ifelse(col_ESR_black_vec[i]>-7 & col_ESR_black_vec[i]<=-5, paste("#7F00FFFF"),
-                             ifelse(col_ESR_black_vec[i]>-5 & col_ESR_black_vec[i]<=-4, paste("#001AFFFF"),
-                                    ifelse(col_ESR_black_vec[i]>-4 & col_ESR_black_vec[i]<=-3, paste("#00B3FFFF"),
-                                           ifelse(col_ESR_black_vec[i]>-3 & col_ESR_black_vec[i]<=-2, paste("#00FFFFFF"),
-                                                  ifelse(col_ESR_black_vec[i]>-2 & col_ESR_black_vec[i]<=-1, paste("#00FF19FF"),
-                                                         ifelse(col_ESR_black_vec[i]>-1 & col_ESR_black_vec[i]<=0, paste("#80FF00FF"),
-                                                                ifelse(col_ESR_black_vec[i]>0 & col_ESR_black_vec[i]<=1, paste("#FFE500FF"),
-                                                                       ifelse(col_ESR_black_vec[i]>1 & col_ESR_black_vec[i]<=2, paste("#FF9900FF"),
-                                                                              ifelse(col_ESR_black_vec[i]>2 & col_ESR_black_vec[i]<=3, paste("#FF4D00FF"),
-                                                                                     ifelse(col_ESR_black_vec[i]>3 & col_ESR_black_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
+  col_ESR_black[i] <- ifelse(col_ESR_black_vec[i]>-3 & col_ESR_black_vec[i]<=-1, paste("#7F00FFFF"),
+                            ifelse(col_ESR_black_vec[i]>-1 & col_ESR_black_vec[i]<=0, paste("#001AFFFF"),
+                            ifelse(col_ESR_black_vec[i]>0 & col_ESR_black_vec[i]<=0.5, paste("#00B3FFFF"),
+                            ifelse(col_ESR_black_vec[i]>0.5 & col_ESR_black_vec[i]<=1, paste("#00FFFFFF"),
+                            ifelse(col_ESR_black_vec[i]>1 & col_ESR_black_vec[i]<=1.5, paste("#00FF19FF"),
+                            ifelse(col_ESR_black_vec[i]>1.5 & col_ESR_black_vec[i]<=2, paste("#80FF00FF"),
+                            ifelse(col_ESR_black_vec[i]>2 & col_ESR_black_vec[i]<=2.5, paste("#FFE500FF"),
+                            ifelse(col_ESR_black_vec[i]>2.5 & col_ESR_black_vec[i]<=3, paste("#FF9900FF"),
+                            ifelse(col_ESR_black_vec[i]>3 & col_ESR_black_vec[i]<=3.5, paste("#FF4D00FF"),
+                            ifelse(col_ESR_black_vec[i]>3.5 & col_ESR_black_vec[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
 }
 
 # Predicted:
 col_pred_red <- rep(0, length(col_pred_red_vec))
 for(i in 1:length(col_pred_red_vec)){
-  col_pred_red[i] <- ifelse(col_pred_red_vec[i]>-7 & col_pred_red_vec[i]<=-5, paste("#7F00FFFF"),
-                            ifelse(col_pred_red_vec[i]>-5 & col_pred_red_vec[i]<=-4, paste("#001AFFFF"),
-                                   ifelse(col_pred_red_vec[i]>-4 & col_pred_red_vec[i]<=-3, paste("#00B3FFFF"),
-                                          ifelse(col_pred_red_vec[i]>-3 & col_pred_red_vec[i]<=-2, paste("#00FFFFFF"),
-                                                 ifelse(col_pred_red_vec[i]>-2 & col_pred_red_vec[i]<=-1, paste("#00FF19FF"),
-                                                        ifelse(col_pred_red_vec[i]>-1 & col_pred_red_vec[i]<=0, paste("#80FF00FF"),
-                                                               ifelse(col_pred_red_vec[i]>0 & col_pred_red_vec[i]<=1, paste("#FFE500FF"),
-                                                                      ifelse(col_pred_red_vec[i]>1 & col_pred_red_vec[i]<=2, paste("#FF9900FF"),
-                                                                             ifelse(col_pred_red_vec[i]>2 & col_pred_red_vec[i]<=3, paste("#FF4D00FF"),
-                                                                                    ifelse(col_pred_red_vec[i]>3 & col_pred_red_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
+  col_pred_red[i] <- ifelse(col_pred_red_vec[i]>-3 & col_pred_red_vec[i]<=-1, paste("#7F00FFFF"),
+                          ifelse(col_pred_red_vec[i]>-1 & col_pred_red_vec[i]<=0, paste("#001AFFFF"),
+                          ifelse(col_pred_red_vec[i]>0 & col_pred_red_vec[i]<=0.5, paste("#00B3FFFF"),
+                          ifelse(col_pred_red_vec[i]>0.5 & col_pred_red_vec[i]<=1, paste("#00FFFFFF"),
+                          ifelse(col_pred_red_vec[i]>1 & col_pred_red_vec[i]<=1.5, paste("#00FF19FF"),
+                          ifelse(col_pred_red_vec[i]>1.5 & col_pred_red_vec[i]<=2, paste("#80FF00FF"),
+                          ifelse(col_pred_red_vec[i]>2 & col_pred_red_vec[i]<=2.5, paste("#FFE500FF"),
+                          ifelse(col_pred_red_vec[i]>2.5 & col_pred_red_vec[i]<=3, paste("#FF9900FF"),
+                          ifelse(col_pred_red_vec[i]>3 & col_pred_red_vec[i]<=3.5, paste("#FF4D00FF"),
+                          ifelse(col_pred_red_vec[i]>3.5 & col_pred_red_vec[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
 }
 
 col_pred_black <- rep(0, length(col_pred_black_vec))
 for(i in 1:length(col_pred_black_vec)){
-  col_pred_black[i] <- ifelse(col_pred_black_vec[i]>-7 & col_pred_black_vec[i]<=-5, paste("#7F00FFFF"),
-                              ifelse(col_pred_black_vec[i]>-5 & col_pred_black_vec[i]<=-4, paste("#001AFFFF"),
-                                     ifelse(col_pred_black_vec[i]>-4 & col_pred_black_vec[i]<=-3, paste("#00B3FFFF"),
-                                            ifelse(col_pred_black_vec[i]>-3 & col_pred_black_vec[i]<=-2, paste("#00FFFFFF"),
-                                                   ifelse(col_pred_black_vec[i]>-2 & col_pred_black_vec[i]<=-1, paste("#00FF19FF"),
-                                                          ifelse(col_pred_black_vec[i]>-1 & col_pred_black_vec[i]<=0, paste("#80FF00FF"),
-                                                                 ifelse(col_pred_black_vec[i]>0 & col_pred_black_vec[i]<=1, paste("#FFE500FF"),
-                                                                        ifelse(col_pred_black_vec[i]>1 & col_pred_black_vec[i]<=2, paste("#FF9900FF"),
-                                                                               ifelse(col_pred_black_vec[i]>2 & col_pred_black_vec[i]<=3, paste("#FF4D00FF"),
-                                                                                      ifelse(col_pred_black_vec[i]>3 & col_pred_black_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
+  col_pred_black[i] <- ifelse(col_pred_black_vec[i]>-3 & col_pred_black_vec[i]<=-1, paste("#7F00FFFF"),
+                            ifelse(col_pred_black_vec[i]>-1 & col_pred_black_vec[i]<=0, paste("#001AFFFF"),
+                            ifelse(col_pred_black_vec[i]>0 & col_pred_black_vec[i]<=0.5, paste("#00B3FFFF"),
+                            ifelse(col_pred_black_vec[i]>0.5 & col_pred_black_vec[i]<=1, paste("#00FFFFFF"),
+                            ifelse(col_pred_black_vec[i]>1 & col_pred_black_vec[i]<=1.5, paste("#00FF19FF"),
+                            ifelse(col_pred_black_vec[i]>1.5 & col_pred_black_vec[i]<=2, paste("#80FF00FF"),
+                            ifelse(col_pred_black_vec[i]>2 & col_pred_black_vec[i]<=2.5, paste("#FFE500FF"),
+                            ifelse(col_pred_black_vec[i]>2.5 & col_pred_black_vec[i]<=3, paste("#FF9900FF"),
+                            ifelse(col_pred_black_vec[i]>3 & col_pred_black_vec[i]<=3.5, paste("#FF4D00FF"),
+                            ifelse(col_pred_black_vec[i]>3.5 & col_pred_black_vec[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
+}
+
+
+# Predicted (relative):
+col_pred_red_rel <- rep(0, length(col_pred_red_vec_rel))
+for(i in 1:length(col_pred_red_vec_rel)){
+  col_pred_red_rel[i] <- ifelse(col_pred_red_vec_rel[i]>-3 & col_pred_red_vec_rel[i]<=-1, paste("#7F00FFFF"),
+                            ifelse(col_pred_red_vec_rel[i]>-1 & col_pred_red_vec_rel[i]<=0, paste("#001AFFFF"),
+                            ifelse(col_pred_red_vec_rel[i]>0 & col_pred_red_vec_rel[i]<=0.5, paste("#00B3FFFF"),
+                            ifelse(col_pred_red_vec_rel[i]>0.5 & col_pred_red_vec_rel[i]<=1, paste("#00FFFFFF"),
+                            ifelse(col_pred_red_vec_rel[i]>1 & col_pred_red_vec_rel[i]<=1.5, paste("#00FF19FF"),
+                            ifelse(col_pred_red_vec_rel[i]>1.5 & col_pred_red_vec_rel[i]<=2, paste("#80FF00FF"),
+                            ifelse(col_pred_red_vec_rel[i]>2 & col_pred_red_vec_rel[i]<=2.5, paste("#FFE500FF"),
+                            ifelse(col_pred_red_vec_rel[i]>2.5 & col_pred_red_vec_rel[i]<=3, paste("#FF9900FF"),
+                            ifelse(col_pred_red_vec_rel[i]>3 & col_pred_red_vec_rel[i]<=3.5, paste("#FF4D00FF"),
+                            ifelse(col_pred_red_vec_rel[i]>3.5 & col_pred_red_vec_rel[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
+}
+
+col_pred_black_rel <- rep(0, length(col_pred_black_vec_rel))
+for(i in 1:length(col_pred_black_vec_rel)){
+  col_pred_black_rel[i] <- ifelse(col_pred_black_vec_rel[i]>-3 & col_pred_black_vec_rel[i]<=-1, paste("#7F00FFFF"),
+                              ifelse(col_pred_black_vec_rel[i]>-1 & col_pred_black_vec_rel[i]<=0, paste("#001AFFFF"),
+                              ifelse(col_pred_black_vec_rel[i]>0 & col_pred_black_vec_rel[i]<=0.5, paste("#00B3FFFF"),
+                              ifelse(col_pred_black_vec_rel[i]>0.5 & col_pred_black_vec_rel[i]<=1, paste("#00FFFFFF"),
+                              ifelse(col_pred_black_vec_rel[i]>1 & col_pred_black_vec_rel[i]<=1.5, paste("#00FF19FF"),
+                              ifelse(col_pred_black_vec_rel[i]>1.5 & col_pred_black_vec_rel[i]<=2, paste("#80FF00FF"),
+                              ifelse(col_pred_black_vec_rel[i]>2 & col_pred_black_vec_rel[i]<=2.5, paste("#FFE500FF"),
+                              ifelse(col_pred_black_vec_rel[i]>2.5 & col_pred_black_vec_rel[i]<=3, paste("#FF9900FF"),
+                              ifelse(col_pred_black_vec_rel[i]>3 & col_pred_black_vec_rel[i]<=3.5, paste("#FF4D00FF"),
+                              ifelse(col_pred_black_vec_rel[i]>3.5 & col_pred_black_vec_rel[i]<4, paste("#FF0000FF"), '#BEBEBE'))))))))))
 }
 
 
@@ -2992,7 +3367,7 @@ for(i in 1:length(col_pred_black_vec)){
 #par(mfrow=c(2,2))
 #par(mar=c(0.5,0.5,6,1))
 
-layout(rbind(c(1,2,3), c(4,5,3)), widths=c(4,4,1))
+layout(rbind(c(1,2,3,4), c(5,6,7,4)), widths=c(4,4,4,1))
 par(mar=c(0.5,0.5,6,0.5))
 
 # Threatened species:
@@ -3000,13 +3375,17 @@ DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of threatened species) \n in 500m x
 plot(TrdRast_clust_model[, "log_chao.reds"],
      col=col_ESR_red, border=col_ESR_red, add=T, cex.main=0.75)
 
-DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell")
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(area of land cover)")
 plot(data_predict_clust,
      col=col_pred_red, border=col_pred_red, add=T, cex.main=0.75)
 
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(percentage of land cover)")
+plot(data_predict_clust_rel,
+     col=col_pred_red_rel, border=col_pred_red_rel, add=T, cex.main=0.75)
+
 plot(0,type='n',axes=FALSE,ann=FALSE)
-legend("center", legend=c("-7-(-5)", "-5-(-4)", "-4-(-3)", "-3-(-2)", "-2-(-1)",
-                          "-1-0", "0-1", "1-2", "2-3", "3-4.5"),
+legend("center", legend=c("-3-(-1)", "-1-0", "0-0.5", "0.5-1", "1-1.5",
+                          "1.5-2", "2-2.5", "2.5-3", "3-3.5", "3.5-4"),
        fill=c("#7F00FFFF", "#001AFFFF", "#00B3FFFF", "#00FFFFFF", "#00FF19FF",
               "#80FF00FF", "#FFE500FF", "#FF9900FF", "#FF4D00FF", "#FF0000FF"), bty="n", cex=1)
 
@@ -3016,8 +3395,699 @@ DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of alien species) \nin 500m x 500m 
 plot(TrdRast_clust_model[, "log_chao.blacks"],
      col=col_ESR_black, border=col_ESR_black, add=T, cex.main=0.75)
 
-DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell")
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell \n(area of land cover)")
 plot(data_predict_clust,
      col=col_pred_black, border=col_pred_black, add=T, cex.main=0.75)
 
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(percentage of land cover)")
+plot(data_predict_clust_rel,
+     col=col_pred_black_rel, border=col_pred_black_rel, add=T, cex.main=0.75)
+
+
+##--- 9. OTHER LOG-MODELS ---####
+##---------------------------####
+# I am not quite satisfied with the look of the residuals in any of the Gaussian models - clearly, my data is
+# not quite Gaussian! (looking at a density plot of the S.chao or the log.chao)
+densityplot(TrdRast_clust_model@data$S.chao1_reds_2013)
+densityplot(TrdRast_clust_model@data$log_chao.reds)
+densityplot(TrdRast_clust_model@data$S.chao1_blacks_2013)
+densityplot(TrdRast_clust_model@data$log_chao.blacks)
+
+# Potentially, if I try to model the S.chao rather than the log, the data might be better described by a
+# gamma-distribution than a Gaussian: continuous, strictly above zero, skewed.
+# Unfortunately, the Gamma requires strictly positive values (so no zeros).
+
+# Looking at the density plots, it seems that even the log transformation tend to throw the 0-values away if
+# the added constant brings the log(x) below zero. The lowest estimated species richness is zero.
+# If we use 1 as the added constant, we force the log(x) to be zero as a minimum, and the density plot turns out
+# more like a Gaussian curve - still not perfect, but significantly better
+densityplot(log(TrdRast_clust_model@data$S.chao1_reds_2013 +1))
+densityplot(log(TrdRast_clust_model@data$S.chao1_blacks_2013 +1))
+
+# I will try to do the modelling with this, and see if it brings out something better
+
+##--- 9.1 DATA PREPARATION ---####
+##----------------------------####
+# Calculate the log-values
+# Raw area:
+TrdRast_clust_model$log1_chao.reds <- NA
+TrdRast_clust_model$log1_chao.blacks <- NA
+for(i in 1:NROW(TrdRast_clust_model@data)){
+  TrdRast_clust_model@data[i,"log1_chao.reds"] <- log(TrdRast_clust_model@data[i,"S.chao1_reds_2013"] + 1)
+  TrdRast_clust_model@data[i,"log1_chao.blacks"] <- log(TrdRast_clust_model@data[i,"S.chao1_blacks_2013"] + 1)
+}
+
+# Relative area
+TrdRast_clust_model_rel$log1_chao.reds <- NA
+TrdRast_clust_model_rel$log1_chao.blacks <- NA
+for(i in 1:NROW(TrdRast_clust_model_rel@data)){
+  TrdRast_clust_model_rel@data[i,"log1_chao.reds"] <- log(TrdRast_clust_model_rel@data[i,"S.chao1_reds_2013"] + 1)
+  TrdRast_clust_model_rel@data[i,"log1_chao.blacks"] <- log(TrdRast_clust_model_rel@data[i,"S.chao1_blacks_2013"] + 1)
+}
+
+# OBS! The datarframe were the ones where the outliers had already bee taken out check
+# if this needs to be done otherwise
+
+
+##--- 9.2 DATA EXPLORATION ---####
+##----------------------------####
+source("HighstatLibV10.R")
+
+### Outliers:
+MyVar <- c("log1_chao.reds", "log1_chao.blacks",
+           "clusterCut", "nhabitat", "Divers", "Evenness", "north.mean")
+
+###### Dotplots                                 # Potentially make the plots manually - replace the x-variable
+par(mfrow=c(2,4))
+plot(x=TrdRast_clust_model@data$log1_chao.reds, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$log1_chao.blacks, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=as.numeric(as.character(TrdRast_clust_model@data$clusterCut)), y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$nhabitat, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$Divers, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$Evenness, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+plot(x=TrdRast_clust_model@data$north.mean, y=c(1:NROW(TrdRast_clust_model@data)),
+     ylab="Order of data", main="Raw area (m^2)", pch=20)
+
+par(mfrow=c(2,4))
+plot(x=TrdRast_clust_model_rel@data$log1_chao.reds, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$log1_chao.blacks, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=as.numeric(as.character(TrdRast_clust_model_rel@data$clusterCut)), y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$nhabitat, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$Divers, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$Evenness, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+plot(x=TrdRast_clust_model_rel@data$north.mean, y=c(1:NROW(TrdRast_clust_model_rel@data)),
+     ylab="Order of data", main="Relative area (%)", pch=20)
+
+### Colinearity
+pairs(TrdRast_clust_model@data[, MyVar], 
+      lower.panel = panel.cor)             
+pairs(TrdRast_clust_model_rel@data[, MyVar], 
+      lower.panel = panel.cor)                   # As expected, we cannot include botn number of habitats and diversity
+                                                 # Not surprising as one is calculated from the other
+corvif(TrdRast_clust_model@data[, MyVar])
+corvif(TrdRast_clust_model_rel@data[, MyVar])    # Some are quite high
+
+### Relationships
+Myxyplot(TrdRast_clust_model@data, MyVar, "log1_chao.reds", 
+         MyYlab = "ESR of redlisted species (m^2)")
+Myxyplot(TrdRast_clust_model@data, MyVar, "log1_chao.blacks", 
+         MyYlab = "ESR of alien species (m^2)")
+
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "log1_chao.reds", 
+         MyYlab = "ESR of redlisted species (%)")
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "log1_chao.blacks", 
+         MyYlab = "ESR of alien species (%)")
+
+
+
+
+
+
+##--- 9.3   PRELIMINARY MODELLING (NON-SPATIAL) ---####
+##--- 9.3.1  Model 1 - threatened species       ---####
+##-------------------------------------------------####
+global_M1.1 <- glm(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+global_M1.1_rel <- glm(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                     family = "gaussian",
+                     data = TrdRast_clust_model_rel@data)
+
+### Model validation: Is everything significant?
+step(global_M1.1)       # Backwards selection using AIC
+step(global_M1.1_rel)   # Backwards selection using AIC
+
+# Define the "better" models:
+M1.1 <- glm(log1_chao.reds ~  clusterCut + Divers + Evenness,
+          family = "gaussian",
+          data = TrdRast_clust_model@data)
+M1.1_rel <- glm(log1_chao.reds ~  clusterCut + Divers + Evenness,
+              family = "gaussian",
+              data = TrdRast_clust_model_rel@data)
+
+summary(M1.1)
+summary(M1.1_rel)
+
+# Plot residuals vs fitted values (M1 and M1_rel)
+F1.1 <- fitted(M1.1)
+E1.1 <- resid(M1.1, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1.1, 
+     y = E1.1,
+     xlab = "Fitted values - M1.1",
+     ylab = "Pearson residuals - M1.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                        # Something seems off - there is seemingly a pattern in the residuals
+
+F1.1_rel <- fitted(M1.1_rel)
+E1.1_rel <- resid(M1.1_rel, type = "pearson")     
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1.1_rel, 
+     y = E1.1_rel,
+     xlab = "Fitted values - M1.1",
+     ylab = "Pearson residuals - M1.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                         # Something seems off - there is seemingly a pattern in the residuals
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$E1.1 <- E1.1
+Myxyplot(TrdRast_clust_model@data, MyVar, "E1.1")
+TrdRast_clust_model@data$E1.1 <- NULL
+
+TrdRast_clust_model_rel@data$E1.1 <- E1.1_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "E1.1")
+TrdRast_clust_model_rel@data$E1.1 <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,2))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1.1)
+hist(E1.1_rel)     # Not quite - hopefully, this is due to potential Spatial Autocorrelation
+
+# Compare the predictor variable levels:
+#library(multcomp)
+#summary(glht(M1, linfct=mcp(clusterCut="Tukey")))
+#summary(glht(M1_rel, linfct=mcp(clusterCut="Tukey")))
+
+
+
+##--- 9.3.2  Model 2 - alien species ---####
+##--------------------------------------####
+global_M2.1 <- glm(log1_chao.blacks ~  clusterCut + Divers + Evenness +  north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+global_M2.1_rel <- glm(log1_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                     family = "gaussian",
+                     data = TrdRast_clust_model_rel@data)
+
+### Model validation: Is everything significant?
+step(global_M2.1)       # Backwards selection using AIC
+step(global_M2.1_rel)   # Backwards selection using AIC
+
+M2.1 <- glm(log1_chao.blacks ~  clusterCut + Divers + Evenness +  north.mean,
+          family = "gaussian",
+          data = TrdRast_clust_model@data)
+
+M2.1_rel <-  glm(log1_chao.blacks ~  clusterCut + Evenness + north.mean,
+               family = "gaussian",
+               data = TrdRast_clust_model_rel@data)
+
+
+# Plot residuals vs fitted values (M2 and M2_rel)
+F2.1 <- fitted(M2.1)
+E2.1 <- resid(M2.1, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F2.1, 
+     y = E2.1,
+     xlab = "Fitted values - M2.1",
+     ylab = "Pearson residuals - M2.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                       # Something seems off - there is seemingly a pattern in the residuals
+
+F2.1_rel <- fitted(M2.1_rel)
+E2.1_rel <- resid(M2.1_rel, type = "pearson")     
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F2.1_rel, 
+     y = E2.1_rel,
+     xlab = "Fitted values - M2.1_rel",
+     ylab = "Pearson residuals - M2.1_rel",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)                       # Something seems off - there is seemingly a pattern in the residuals
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$E2.1 <- E2.1
+Myxyplot(TrdRast_clust_model@data, MyVar, "E2.1")
+TrdRast_clust_model@data$E2.1 <- NULL
+
+TrdRast_clust_model_rel@data$E2.1 <- E2.1_rel
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "E2.1")
+TrdRast_clust_model_rel@data$E2.1 <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,2))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E2.1)
+hist(E2.1_rel)     # Not quite - hopefully, this is due to potential Spatial Autocorrelation
+
+# Compare the predictor variable levels:
+#library(multcomp)
+#summary(glht(M2, linfct=mcp(clusterCut="Tukey")))
+#summary(glht(M2_rel, linfct=mcp(clusterCut="Tukey")))
+
+
+
+##--- 9.4 SPATIAL AUTOCORRELATION- threatened species ---####
+##--- 9.4.1 Testing for SAC - Chao1_reds              ---####
+##-------------------------------------------------------####
+library(spdep)
+library(ncf)
+
+# Make a plot to visualize - some autocorrelation is detectable:
+col.heat <- heat.colors(max(TrdRast_clust_model$log1_chao.reds) + 1)   
+palette(rev(col.heat))
+layout(t(1:2),widths=c(6,1))
+par(mar=c(1,1,1,1))
+plot(TrdRast_clust_model, col=(TrdRast_clust_model$log1_chao.reds)) 
+par(mar=c(5,1,5,2.5))
+image(y=(0):4,z=t((0):4), col=rev(col.heat), axes=FALSE, main="log(threatened\n+0.1)", cex.main=.6)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+# From pure visual estimation, we seem to have some autocorrelation
+
+# Make a correlogram:
+correlog1.1 <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1.1), na.rm = T, increment = 1, resamp = 0)
+correlog1.1_rel <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1.1_rel), na.rm = T, increment = 1, resamp = 0)
+
+# Plot the first 20 distance classes (we use the coordinates from the previous analyses)
+par(mfrow=c(1,2))
+par(mar=c(5,5,0.1, 0.1))
+plot(correlog1.1$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+plot(correlog1.1_rel$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+
+# Make a map of the residuals:
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1.1))/2+1.5], pch=19,
+     cex=abs(resid(M1.1))/max(resid(M1.1))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1.1_rel))/2+1.5], pch=19,
+     cex=abs(resid(M1.1_rel))/max(resid(M1.1_rel))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+
+# calculate Moran's I values explicitly for a certain distance, and to test for its significance:
+GlobMT1.1_clust <- moran.test(residuals(M1.1), listw=clust.listw, zero.policy = T)
+GlobMT1.1_clust    # Significant
+
+GlobMT1.1_clust_rel <- moran.test(residuals(M1.1_rel), listw=clust.listw, zero.policy = T)
+GlobMT1.1_clust_rel   # Significant
+
+# We seemingly have SAC in these model residuals.
+# Lets have a look at whether there is SAC in the data itself rather than only the residuals:
+moran(TrdRast_clust_model$log1_chao.reds, clust.listw, n=length(clust.listw$neighbours),
+      S0=Szero(clust.listw), zero.policy = TRUE)    # Calculate Moran's I
+
+# Test for significance:
+moran.test(TrdRast_clust_model$log1_chao.reds, clust.listw, randomisation=FALSE,
+           alternative = "two.sided", zero.policy = TRUE)     # Using linear regression based logic and assumptions
+
+MC_clust.1 <- moran.mc(TrdRast_clust_model$log1_chao.reds, clust.listw,
+                     zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+plot(MC_clust.1, main=NULL)     # Our value is way beyond the curve - high levels of SAC in the data!
+abline(v=MC_clust.1$statistic, lty=2, col="red")
+
+# Make a correlogram
+correlog1.1_data <- sp.correlogram(clust.nb, TrdRast_clust_model$log1_chao.reds, order=8, method="I", zero.policy = TRUE)
+par(mar=c(5.1, 4.1, 4.1, 2.1))
+plot(correlog1.1_data)
+
+# We thus have SAC in the data and but only slightly in the model residuals
+
+
+##--- 9.4.2 Testing for SAC - Chao1_blacks             ---####
+##--------------------------------------------------------####
+
+# Make a plot to visualize - some autocorrelation is detectable:
+col.heat <- heat.colors(max(TrdRast_clust_model$log1_chao.blacks) + 1)
+palette(rev(col.heat))
+layout(t(1:2),widths=c(6,1))
+par(mar=c(1,1,1,1))
+plot(TrdRast_clust_model, col=(TrdRast_clust_model$log1_chao.blacks)) 
+par(mar=c(5,1,5,2.5))
+image(y=-3:4,z=t(-3:4), col=rev(col.heat), axes=FALSE, main="log(alien\n+00.1)", cex.main=.6)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+
+# Make a correlogram:
+correlog2.1 <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2.1), na.rm = T, increment = 1, resamp = 0)
+correlog2.1_rel <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2.1_rel), na.rm = T, increment = 1, resamp = 0)
+
+# Plot the first 20 distance classes
+par(mfrow=c(1,2))
+par(mar=c(5,5,0.1, 0.1))
+plot(correlog2.1$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+plot(correlog2.1_rel$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+
+# Make a map of the residuals:
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2.1))/2+1.5], pch=19,
+     cex=abs(resid(M2.1))/max(resid(M2.1))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2.1_rel))/2+1.5], pch=19,
+     cex=abs(resid(M2.1_rel))/max(resid(M2.1_rel))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+
+# calculate Moran's I values explicitly for a certain distance, and to test for its significance:
+GlobMT2.1 <- moran.test(residuals(M2.1), listw=clust.listw, zero.policy = T)
+GlobMT2.1     # Significant SAC
+
+GlobMT2.1_rel <- moran.test(residuals(M2.1_rel), listw=clust.listw, zero.policy = T)
+GlobMT2.1_rel   # Significant SAC
+
+# SAC in these model residuals
+
+
+
+##--- 9.5 DEALING WITH SAC ---####
+##--- 9.5.1 Chao1_reds     ---####
+##----------------------------####
+
+# To deal with the spatial autocorrelation, we can use a GLS with an added correlation structure - we thus also
+# need to figure out what kind of correlation structure is apppriate. I have skipped this step here,
+# as all the preliminary analyses pointed to the exponential correlation structure.
+summary(gls_clust.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                         data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls_clust_rel.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                             data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+
+AIC(global_M1.1, gls_clust.1)          # Significantly better (dAIC > 2)
+AIC(global_M1.1_rel, gls_clust_rel.1)  # Not significantly better
+
+# As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
+# In this case, we are just checking if the interaction term is still significant (if we add more variables, the fit is singular)
+# We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
+# the backwards model selection impossible, as the AIC is undefined:
+gls_ML_clust.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                            data = TrdRast_clust_model@data,
+                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                            method = "ML")
+gls_ML_clust_rel.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness + north.mean,
+                                data = TrdRast_clust_model_rel@data,
+                                correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                                method = "ML")
+
+
+stepAIC(gls_ML_clust.1)             
+stepAIC(gls_ML_clust_rel.1)
+
+# According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Divers + Evenness
+# This is similar to the optimal model for the non-spatial approach - however, Evenness is now included in the
+# models
+
+# Define the better model(s):
+summary(gls_clust_reds.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness,
+                              data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls_clust_reds_rel.1 <- gls(log1_chao.reds ~  clusterCut + Divers + Evenness,
+                                  data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+AIC(M1.1, gls_clust_reds.1)              # Significantly better (dAIC > 2) 
+AIC(M1.1_rel, gls_clust_reds_rel.1)      # Significantly better (dAIC > 2) 
+
+
+
+##--- 9.5.2 Chao1_blacks    ---####
+##-----------------------------####
+summary(gls.b_clust.1 <- gls(log1_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                           data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+summary(gls.b_clust_rel.1 <- gls(log1_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                               data=TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+
+AIC(global_M2.1, gls.b_clust.1)               # Significantly better (dAIC > 2)
+AIC(global_M2.1_rel, gls.b_clust_rel.1)       # Significantly better (dAIC > 2)
+
+# As we now have a basal model, we can try and do some model selection similar to what we did for the uncorrelated model.
+# We need to redefine the model to use "Maximum Likelihood" rather than the gls-default "REML" - the latter makes
+# the backwards model selection impossible, as the AIC is undefined:
+gls.b_ML_clust.1 <- gls(log1_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                              data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")
+gls.b_ML_clust_rel.1 <- gls(log1_chao.blacks ~  clusterCut + Divers + Evenness + north.mean,
+                                  data=TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")
+
+stepAIC(gls.b_ML_clust.1)        # log_chao.blacks ~ clusterCut + Divers
+stepAIC(gls.b_ML_clust_rel.1)    # log_chao.blacks ~ clusterCut
+
+# This is not quite similar to the optimal model for the non-spatial approach
+
+# Define the better model and compare AIC:
+summary(gls_clust_blacks.1 <- gls(log1_chao.blacks ~  clusterCut + Divers,
+                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+summary(gls_clust_blacks_rel.1 <- gls(log1_chao.blacks ~  clusterCut,
+                                    data = TrdRast_clust_model_rel@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+
+
+AIC(M2.1, gls_clust_blacks.1)
+AIC(M2.1_rel, gls_clust_blacks_rel.1)
+
+
+##--- 9.5.3 Model validation ---####
+##------------------------------####
+summary(gls_clust_reds.1)
+summary(gls_clust_reds_rel.1)
+summary(gls_clust_blacks.1)
+summary(gls_clust_blacks_rel.1)
+
+# Plot residuals vs fitted values (gls.exp_clust_reds)
+F1_threat.1 <- fitted(gls_clust_reds.1)
+E1_threat.1 <- resid(gls_clust_reds.1, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_threat.1, 
+     y = E1_threat.1,
+     xlab = "Fitted values - gls_clust_reds.1",
+     ylab = "Pearson residuals - gls_clust_reds.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+F1_threat_rel.1 <- fitted(gls_clust_reds_rel.1)
+E1_threat_rel.1 <- resid(gls_clust_reds_rel.1, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_threat_rel.1, 
+     y = E1_threat_rel.1,
+     xlab = "Fitted values - gls_clust_reds_rel.1",
+     ylab = "Pearson residuals - gls_clust_reds_rel.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_threat.1 <- E1_threat.1
+Myxyplot(TrdRast_clust_model@data, MyVar, "Resid_threat.1")
+TrdRast_clust_model@data$Resid_threat.1 <- NULL
+
+TrdRast_clust_model_rel@data$Resid_threat.1 <- E1_threat_rel.1
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "Resid_threat.1")
+TrdRast_clust_model_rel@data$Resid_threat.1 <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_threat.1)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_threat_rel.1)
+
+# Plot residuals vs fitted values (gls.exp_clust_blacks)
+F1_alien.1 <- fitted(gls_clust_blacks.1)
+E1_alien.1 <- resid(gls_clust_blacks.1, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_alien.1, 
+     y = E1_alien.1,
+     xlab = "Fitted values - gls_clust_blacks.1",
+     ylab = "Pearson residuals - gls_clust_blacks.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+F1_alien_rel.1 <- fitted(gls_clust_blacks_rel.1)
+E1_alien_rel.1 <- resid(gls_clust_blacks_rel.1, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_alien_rel.1, 
+     y = E1_alien_rel.1,
+     xlab = "Fitted values - gls_clust_blacks_rel.1",
+     ylab = "Pearson residuals - gls_clust_blacks_rel.1",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_alien.1 <- E1_alien.1
+Myxyplot(TrdRast_clust_model@data, MyVar, "Resid_alien.1")
+TrdRast_clust_model@data$Resid_alien.1 <- NULL
+
+TrdRast_clust_model_rel@data$Resid_alien.1 <- E1_alien_rel.1
+Myxyplot(TrdRast_clust_model_rel@data, MyVar, "Resid_alien.1")
+TrdRast_clust_model_rel@data$Resid_alien.1 <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_alien.1)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_alien_rel.1)
+
+##--- 9.6 Making predictions from models   ---####
+##--------------------------------------------####
+
+# Now we want to try and make predictions on the number of either threatened or alien species based on
+# the spatial models.
+
+data_predict_clust.1 <- TrdRast_clust[, c(1, 83, 85, 86, 87, 88)]
+data_predict_clust_rel.1 <- TrdRast_clust_rel[, c(1, 83, 84, 85, 86, 87, 88)]
+# Remove the grid cells with categories which cannot be used i the model (0 and 10)
+data_predict_clust.1 <- data_predict_clust.1[!data_predict_clust.1@data$clusterCut==0,]
+data_predict_clust.1 <- data_predict_clust.1[!data_predict_clust.1@data$clusterCut==10,]
+data_predict_clust.1@data$clusterCut <- as.factor(data_predict_clust.1@data$clusterCut)
+
+names(data_predict_clust_rel.1@data)[names(data_predict_clust_rel.1@data) == 'clusterCut_rel'] <- 'clusterCut'
+data_predict_clust_rel.1 <- data_predict_clust_rel.1[!data_predict_clust_rel.1@data$clusterCut==8,]
+data_predict_clust_rel.1 <- data_predict_clust_rel.1[!data_predict_clust_rel.1@data$clusterCut==12,]
+data_predict_clust_rel.1@data$clusterCut <- as.factor(data_predict_clust_rel.1@data$clusterCut)
+
+### Make the predictions for threatened and alien species:
+data_predict_clust.1$predict_reds <- predict(gls_clust_reds.1, newdata=data_predict_clust.1)
+data_predict_clust_rel.1$predict_reds <- predict(gls_clust_reds_rel.1, newdata=data_predict_clust_rel.1)
+data_predict_clust.1$predict_blacks <- predict(gls_clust_blacks.1, newdata=data_predict_clust.1)
+data_predict_clust_rel.1$predict_blacks <- predict(gls_clust_blacks_rel.1, newdata=data_predict_clust_rel.1)
+
+range(data_predict_clust.1$predict_reds)        
+range(data_predict_clust_rel.1$predict_reds)    
+range(data_predict_clust.1$predict_blacks)
+range(data_predict_clust_rel.1$predict_blacks)
+# Unfortunately, we do get some values below zero - very small, however
+
+
+##--- 8.4.1 Make the vectors with colour names           ---####
+##----------------------------------------------------------####
+# Get the numbers to base the colour on:
+col_ESR_red_vec <- c(TrdRast_clust_model@data$log1_chao.reds)
+col_ESR_black_vec <- c(TrdRast_clust_model@data$log1_chao.blacks)
+col_pred_red_vec <- c(data_predict_clust.1@data$predict_reds)
+col_pred_red_vec_rel <- c(data_predict_clust_rel.1@data$predict_reds)
+col_pred_black_vec <- c(data_predict_clust.1@data$predict_blacks)
+col_pred_black_vec_rel <- c(data_predict_clust_rel.1@data$predict_blacks)
+
+# The vectors with colour names needs to have the same range, if the maps are to be comparable
+# Chao1:
+col_ESR_red <- rep(0, length(col_ESR_red_vec))
+for(i in 1:length(col_ESR_red_vec)){
+  col_ESR_red[i] <- ifelse(col_ESR_red_vec[i]>-0.5 & col_ESR_red_vec[i]<=0, paste("#7F00FFFF"),
+                           ifelse(col_ESR_red_vec[i]>0 & col_ESR_red_vec[i]<=0.5, paste("#001AFFFF"),
+                           ifelse(col_ESR_red_vec[i]>0.5 & col_ESR_red_vec[i]<=1, paste("#00B3FFFF"),
+                           ifelse(col_ESR_red_vec[i]>1 & col_ESR_red_vec[i]<=1.5, paste("#00FFFFFF"),
+                           ifelse(col_ESR_red_vec[i]>1.5 & col_ESR_red_vec[i]<=2, paste("#80FF00FF"),
+                           ifelse(col_ESR_red_vec[i]>2 & col_ESR_red_vec[i]<=2.5, paste("#FFE500FF"),
+                           ifelse(col_ESR_red_vec[i]>2.5 & col_ESR_red_vec[i]<=3, paste("#FF9900FF"),
+                           ifelse(col_ESR_red_vec[i]>3 & col_ESR_red_vec[i]<=3.5, paste("#FF4D00FF"),
+                           ifelse(col_ESR_red_vec[i]>3.5 & col_ESR_red_vec[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+col_ESR_black <- rep(0, length(col_ESR_black_vec))
+for(i in 1:length(col_ESR_black_vec)){
+  col_ESR_black[i] <- ifelse(col_ESR_black_vec[i]>-0.5 & col_ESR_black_vec[i]<=0, paste("#7F00FFFF"),
+                             ifelse(col_ESR_black_vec[i]>0 & col_ESR_black_vec[i]<=0.5, paste("#001AFFFF"),
+                                    ifelse(col_ESR_black_vec[i]>0.5 & col_ESR_black_vec[i]<=1, paste("#00B3FFFF"),
+                                           ifelse(col_ESR_black_vec[i]>1 & col_ESR_black_vec[i]<=1.5, paste("#00FFFFFF"),
+                                                         ifelse(col_ESR_black_vec[i]>1.5 & col_ESR_black_vec[i]<=2, paste("#80FF00FF"),
+                                                                ifelse(col_ESR_black_vec[i]>2 & col_ESR_black_vec[i]<=2.5, paste("#FFE500FF"),
+                                                                       ifelse(col_ESR_black_vec[i]>2.5 & col_ESR_black_vec[i]<=3, paste("#FF9900FF"),
+                                                                              ifelse(col_ESR_black_vec[i]>3 & col_ESR_black_vec[i]<=3.5, paste("#FF4D00FF"),
+                                                                                     ifelse(col_ESR_black_vec[i]>3.5 & col_ESR_black_vec[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+# Predicted:
+col_pred_red <- rep(0, length(col_pred_red_vec))
+for(i in 1:length(col_pred_red_vec)){
+  col_pred_red[i] <- ifelse(col_pred_red_vec[i]>-0.5 & col_pred_red_vec[i]<=0, paste("#7F00FFFF"),
+                            ifelse(col_pred_red_vec[i]>0 & col_pred_red_vec[i]<=0.5, paste("#001AFFFF"),
+                             ifelse(col_pred_red_vec[i]>0.5 & col_pred_red_vec[i]<=1, paste("#00B3FFFF"),
+                              ifelse(col_pred_red_vec[i]>1 & col_pred_red_vec[i]<=1.5, paste("#00FFFFFF"),
+                                ifelse(col_pred_red_vec[i]>1.5 & col_pred_red_vec[i]<=2, paste("#80FF00FF"),
+                                  ifelse(col_pred_red_vec[i]>2 & col_pred_red_vec[i]<=2.5, paste("#FFE500FF"),
+                                    ifelse(col_pred_red_vec[i]>2.5 & col_pred_red_vec[i]<=3, paste("#FF9900FF"),
+                                      ifelse(col_pred_red_vec[i]>3 & col_pred_red_vec[i]<=3.5, paste("#FF4D00FF"),
+                                        ifelse(col_pred_red_vec[i]>3.5 & col_pred_red_vec[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+col_pred_black <- rep(0, length(col_pred_black_vec))
+for(i in 1:length(col_pred_black_vec)){
+  col_pred_black[i] <- ifelse(col_pred_black_vec[i]>-0.5 & col_pred_black_vec[i]<=0, paste("#7F00FFFF"),
+                              ifelse(col_pred_black_vec[i]>0 & col_pred_black_vec[i]<=0.5, paste("#001AFFFF"),
+                                     ifelse(col_pred_black_vec[i]>0.5 & col_pred_black_vec[i]<=1, paste("#00B3FFFF"),
+                                            ifelse(col_pred_black_vec[i]>1 & col_pred_black_vec[i]<=1.5, paste("#00FFFFFF"),
+                                                          ifelse(col_pred_black_vec[i]>1.5 & col_pred_black_vec[i]<=2, paste("#80FF00FF"),
+                                                                 ifelse(col_pred_black_vec[i]>2 & col_pred_black_vec[i]<=2.5, paste("#FFE500FF"),
+                                                                        ifelse(col_pred_black_vec[i]>2.5 & col_pred_black_vec[i]<=3, paste("#FF9900FF"),
+                                                                               ifelse(col_pred_black_vec[i]>3 & col_pred_black_vec[i]<=3.5, paste("#FF4D00FF"),
+                                                                                      ifelse(col_pred_black_vec[i]>3.5 & col_pred_black_vec[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+
+# Predicted (relative):
+col_pred_red_rel <- rep(0, length(col_pred_red_vec_rel))
+for(i in 1:length(col_pred_red_vec_rel)){
+  col_pred_red_rel[i] <- ifelse(col_pred_red_vec_rel[i]>-0.5 & col_pred_red_vec_rel[i]<=0, paste("#7F00FFFF"),
+                                ifelse(col_pred_red_vec_rel[i]>0 & col_pred_red_vec_rel[i]<=0.5, paste("#001AFFFF"),
+                                       ifelse(col_pred_red_vec_rel[i]>0.5 & col_pred_red_vec_rel[i]<=1, paste("#00B3FFFF"),
+                                              ifelse(col_pred_red_vec_rel[i]>1 & col_pred_red_vec_rel[i]<=1.5, paste("#00FFFFFF"),
+                                                            ifelse(col_pred_red_vec_rel[i]>1.5 & col_pred_red_vec_rel[i]<=2, paste("#80FF00FF"),
+                                                                   ifelse(col_pred_red_vec_rel[i]>2 & col_pred_red_vec_rel[i]<=2.5, paste("#FFE500FF"),
+                                                                          ifelse(col_pred_red_vec_rel[i]>2.5 & col_pred_red_vec_rel[i]<=3, paste("#FF9900FF"),
+                                                                                 ifelse(col_pred_red_vec_rel[i]>3 & col_pred_red_vec_rel[i]<=3.5, paste("#FF4D00FF"),
+                                                                                        ifelse(col_pred_red_vec_rel[i]>3.5 & col_pred_red_vec_rel[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+col_pred_black_rel <- rep(0, length(col_pred_black_vec_rel))
+for(i in 1:length(col_pred_black_vec_rel)){
+  col_pred_black_rel[i] <- ifelse(col_pred_black_vec_rel[i]>-0.5 & col_pred_black_vec_rel[i]<=0, paste("#7F00FFFF"),
+                                  ifelse(col_pred_black_vec_rel[i]>0 & col_pred_black_vec_rel[i]<=0.5, paste("#001AFFFF"),
+                                         ifelse(col_pred_black_vec_rel[i]>0.5 & col_pred_black_vec_rel[i]<=1, paste("#00B3FFFF"),
+                                                ifelse(col_pred_black_vec_rel[i]>1 & col_pred_black_vec_rel[i]<=1.5, paste("#00FFFFFF"),
+                                                              ifelse(col_pred_black_vec_rel[i]>1.5 & col_pred_black_vec_rel[i]<=2, paste("#80FF00FF"),
+                                                                     ifelse(col_pred_black_vec_rel[i]>2 & col_pred_black_vec_rel[i]<=2.5, paste("#FFE500FF"),
+                                                                            ifelse(col_pred_black_vec_rel[i]>2.5 & col_pred_black_vec_rel[i]<=3, paste("#FF9900FF"),
+                                                                                   ifelse(col_pred_black_vec_rel[i]>3 & col_pred_black_vec_rel[i]<=3.5, paste("#FF4D00FF"),
+                                                                                          ifelse(col_pred_black_vec_rel[i]>3.5 & col_pred_black_vec_rel[i]<4, paste("#FF0000FF"), '#BEBEBE')))))))))
+}
+
+
+##--- 8.4.2 Make the maps                                ---####
+##----------------------------------------------------------####
+#par(mfrow=c(2,2))
+#par(mar=c(0.5,0.5,6,1))
+
+layout(rbind(c(1,2,3,4), c(5,6,7,4)), widths=c(4,4,4,1))
+par(mar=c(0.5,0.5,6,0.5))
+
+# Threatened species:
+DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of threatened species) \n in 500m x 500m cell")
+plot(TrdRast_clust_model[, "log1_chao.reds"],
+     col=col_ESR_red, border=col_ESR_red, add=T, cex.main=0.75)
+
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(area of land cover)")
+plot(data_predict_clust.1,
+     col=col_pred_red, border=col_pred_red, add=T, cex.main=0.75)
+
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(percentage of land cover)")
+plot(data_predict_clust_rel.1,
+     col=col_pred_red_rel, border=col_pred_red_rel, add=T, cex.main=0.75)
+
+plot(0,type='n',axes=FALSE,ann=FALSE)
+legend("center", legend=c("-0.5-0", "0-0.5", "0.5-1", "1-1.5", 
+                          "1.5-2", "2-2.5", "2.5-3", "3-3.5", "3.5-4"),
+       fill=c("#7F00FFFF", "#001AFFFF", "#00B3FFFF", "#00FFFFFF", "#00FF19FF",
+              "#80FF00FF", "#FFE500FF", "#FF9900FF", "#FF4D00FF", "#FF0000FF"), bty="n", cex=1)
+
+
+# Alien species:
+DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of alien species) \nin 500m x 500m cell")
+plot(TrdRast_clust_model[, "log1_chao.blacks"],
+     col=col_ESR_black, border=col_ESR_black, add=T, cex.main=0.75)
+
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell \n(area of land cover)")
+plot(data_predict_clust.1,
+     col=col_pred_black, border=col_pred_black, add=T, cex.main=0.75)
+
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(percentage of land cover)")
+plot(data_predict_clust_rel.1,
+     col=col_pred_black_rel, border=col_pred_black_rel, add=T, cex.main=0.75)
 
