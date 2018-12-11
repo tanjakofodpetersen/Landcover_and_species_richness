@@ -185,7 +185,10 @@ legend("top",
               "lightcyan", "forestgreen", "sandybrown", "yellow", "cyan"), 
        bty="n", cex=0.8, x.intersp = 2, y.intersp = 2, ncol = 4)
 
-plot(TrdRast_clust_model[TrdRast_clust_model$Pixelnr==1369,], border="red", add=TRUE)
+# Add a border around the cells used in the analyses:
+plot(TrdRast_clust_model, border="black", lwd=4, col=NA, add=TRUE)
+
+# plot(TrdRast_clust_model[TrdRast_clust_model$Pixelnr==1369,], border="red", add=TRUE) # To see the cell with a potential outlier
 
 ##--- 2. ADD MORE NEEDED VARIABLES FOR THE MODELS ---####
 ##--- 2.1 HABTAT HETEROGENEITY/EVENESS            ---####
@@ -310,7 +313,8 @@ source("HighstatLibV10.R")
 # effort into account - hence, we have to make see if we have a correlation between number of observed species and the
 # estimated numbers within the cells we're using for the analyses
 MyVar_numbers <- c("S.obs_2013", "S.obs_reds_2013", "S.obs_blacks_2013",
-                   "S.chao1_2013", "S.chao1_reds_2013", "S.chao1_blacks_2013")
+                   "S.chao1_2013", "S.chao1_reds_2013", "S.chao1_blacks_2013",
+                   "log_chao.all", "log_chao.reds", "log_chao.blacks")
 pairs(TrdRast_clust_model@data[, MyVar_numbers], 
       lower.panel = panel.cor)                     # Not too important yet, the important one is the model predictions
 
@@ -370,7 +374,7 @@ TrdRast_clust_model$clusterCut <- as.factor(TrdRast_clust_model$clusterCut)
 ##-------------------------------------------------####
 
 # Unfortunately, when we want to run the "step"-function, cells with missing values cannot be used - for this dataset,
-# it is luckily only one grid cell (covered entirely by freshwater, north.mean = NaN). We have to omit that one,
+# it is luckily only three grid cells (covered entirely by freshwater, north.mean = NaN). We have to omit that one,
 # unless we find a reasonable value
 TrdRast_clust_model <- TrdRast_clust_model[!is.na(TrdRast_clust_model@data$north.mean),]
 
@@ -662,6 +666,13 @@ abline(v=MC_res3_clust$statistic, lty=2, col="red")
 # need to figure out what kind of correlation structure is apppriate. As it takes extensive experience actually
 # differentiating, I go with the simplest one. Running them all and comparing by AIC indicates that the
 # ratio-structure might be appropriate as well.
+
+# OBS! For the model selection, I wasn't qutie happy with just picking the "best" model based on AIC.
+# Instead I decided to look at the bias-corrected AICc, and use model averaging, as both AIC and AICc were
+# unable to differentiate between the best candidate models (deltaAIC <2 ).
+# The two Information criteria give slightly different estimates of the best models, thus model averaging seems
+# to be the best option
+library(MuMIn)
 require(nlme)
 summary(gls_clust <- gls(log_chao.reds ~  clusterCut + Divers + north.mean,
                          data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
@@ -677,8 +688,15 @@ summary(gls_ML_clust <- gls(log_chao.reds ~  clusterCut + Divers + north.mean,
                             method = "ML")) # We need the method to be "ML", otherwise the comparison of AIC does not work properly
 
 library(MASS)
-stepAIC(gls_ML_clust)              # For unknown reasons, the standard 'step()' doesn't work - this one does
-rm(gls_ML_clust)                   # To save some memory
+#stepAIC(gls_ML_clust)              # For unknown reasons, the standard 'step()' doesn't work - this one does
+d.red <- dredge(gls_ML_clust)
+d.red2 <- subset(d.red, delta<2)
+model.sel(d.red2)
+output_red <- model.sel(d.red2)
+
+
+# In this case, there was only one best candidate model, thus model averaging i unnecessary for this particular set.
+# According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Divers
 
 # According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Divers
 # This is similar to the optimal model for the non-spatial approach 
@@ -688,6 +706,11 @@ summary(gls_clust_reds <- gls(log_chao.reds ~  clusterCut + Divers,
                               data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
                               method = "ML"))
 
+# To keep consistency in naming of models:
+gls_avg_reds <- gls(log_chao.reds ~  clusterCut + Divers,
+                    data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                    method = "ML")   
+
 AIC(M1, gls_clust_reds)              # The model is seemingly not better, according to AIC. This could potentially
                                      # be an artifact of the warning: "models are not all fitted to the same number
                                      # of observations" - this is probably as we introduce the neighbours, some grid
@@ -696,9 +719,10 @@ AIC(M1, gls_clust_reds)              # The model is seemingly not better, accord
 
 # To check the coefficients of the same model, but with other factor levels as reference, use the following and change
 # the factor level in "ref="
-summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
-            method = "ML"))
+#summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+#            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#            method = "ML"))
+summary(update(gls_avg_reds, ~ . - clusterCut + relevel(clusterCut, ref="2")))
 
 
 ##--- 3.4.2 Chao1_blacks    ---####
@@ -714,23 +738,43 @@ AIC(global_M2, gls.b_clust)               # Significantly better (dAIC > 2)
 summary(gls.b_ML_clust <- gls(log_chao.blacks ~  clusterCut + Divers + north.mean,
                               data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
 
-stepAIC(gls.b_ML_clust)        # log_chao.blacks ~ clusterCut + Divers
-rm(gls.b_ML_clust)
+#stepAIC(gls.b_ML_clust)        # log_chao.blacks ~ clusterCut + Divers
+d.black <- dredge(gls.b_ML_clust)
+d.black2 <- subset(d.black, delta<2)
+model.sel(d.black2)
+output_black <- model.sel(d.black2)
+importance(output_black)
+# Here we have more than 1 candidate model - we thus need model averaging!
+gls_avg_blacks <- model.avg(output_black, fit=TRUE)   
+
+gls_avg_blacks$msTable
+gls_avg_blacks$coefficients
+gls_avg_blacks$formula
+gls_avg_blacks$call
+summary(gls_avg_blacks)   
+
+summary(gls_avg_blacks)$coefmat.full  # When retrieving the results, I have chosen to use the zero-method (full model) rather than the conditional
+                                      # as this is better when we are interested in the importance of variables (Grueber et al. 2011)
+summary(model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))),
+                  subset=delta<2, fit=TRUE))$coefmat.full
 
 # This is somewhat similar to the optimal model for the non-spatial approach, minus the north.mean
 
 # Define the better model and compare AIC:
-summary(gls_clust_blacks <- gls(log_chao.blacks ~  clusterCut + Divers,
-                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
-                                method = "ML"))
+#summary(gls_clust_blacks <- gls(log_chao.blacks ~  clusterCut + Divers,
+#                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#                                method = "ML"))
 
 AIC(M2, gls_clust_blacks)
 
 
 # To check the coefficients of the same model, but with other factor levels as reference, use the following and change
 # the factor level in "ref="
-summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
+#summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+#            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#            method = "ML"))
+
+model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
 
 
 ##--- 3.4.3 Chao1_all    ---####
@@ -746,30 +790,48 @@ AIC(global_M3, gls.a_clust)               # Significantly better (dAIC > 2)
 summary(gls.a_ML_clust <- gls(log_chao.all ~  clusterCut + Divers + north.mean,
                               data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
 
-stepAIC(gls.a_ML_clust)        # log_chao.all ~ clusterCut + Divers
-rm(gls.a_ML_clust)
+#stepAIC(gls.a_ML_clust)        # log_chao.all ~ clusterCut + Divers
+d.all <- dredge(gls.a_ML_clust)
+d.all2 <- subset(d.all, delta<2)
+model.sel(d.all2)
+output_all <- model.sel(d.all2)
+importance(output_all)
+# Here we have more than 1 candidate model - we thus need model averaging!
+gls_avg_all <- model.avg(output_all, fit=TRUE)   
+
+gls_avg_all$msTable
+gls_avg_all$coefficients
+gls_avg_all$formula
+gls_avg_all$call
+summary(gls_avg_all)   
+
+summary(gls_avg_all)$coefmat.full  # When retrieving the results, I have chosen to use the zero-method (full model) rather than the conditional
+                                   # as this is better when we are interested in the importance of variables (Grueber et al. 2011)
+summary(model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))),
+                  subset=delta<2, fit=TRUE))$coefmat.full
+
 
 # Define the better model and compare AIC:
-summary(gls_clust_all <- gls(log_chao.all ~  clusterCut + Divers,
-                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
-                             method = "ML"))
+#summary(gls_clust_all <- gls(log_chao.all ~  clusterCut + Divers,
+#                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#                             method = "ML"))
 
 AIC(M3, gls_clust_all)
 
 
 # To check the coefficients of the same model, but with other factor levels as reference, use the following and change
 # the factor level in "ref="
-summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2])))
-
-
+#summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+#            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#            method = "ML"))
+model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
 
 
 ##--- 3.4.3 Model validation ---####
 ##------------------------------####
-summary(gls_clust_reds)
-summary(gls_clust_blacks)
-summary(gls_clust_all)
+summary(gls_avg_reds)      # summary(gls_clust_reds)
+summary(gls_avg_blacks)    # summary(gls_clust_blacks)
+summary(gls_avg_all)       # summary(gls_clust_all)
 
 # Pseudo-R^2 calculated as correlation between observed and predicted values - this is what was done in
 # in the Ballesteros-Meija paper - I am uncertain whether is is desirable for me.
@@ -790,8 +852,8 @@ cor(pseudo$log_chao.all, pseudo$predict_all)
 
 
 # Plot residuals vs fitted values (gls.exp_clust_reds)
-F1_threat <- fitted(gls_clust_reds)
-E1_threat <- resid(gls_clust_reds, type = "pearson")      
+F1_threat <- fitted(gls_avg_reds)
+E1_threat <- resid(gls_avg_reds, type = "pearson")      
 par(mfrow = c(1,1), mar = c(5,5,2,2))
 plot(x = F1_threat, 
      y = E1_threat,
@@ -811,52 +873,56 @@ par(mar=c(5.1,4.1,4.1,2.1))
 hist(E1_threat)
 
 
-# Plot residuals vs fitted values (gls.exp_clust_blacks)
-F1_alien <- fitted(gls_clust_blacks)
-E1_alien <- resid(gls_clust_blacks, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F1_alien, 
-     y = E1_alien,
-     xlab = "Fitted values - alien",
-     ylab = "Pearson residuals - alien",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)
+### THESE ARE NOT WORKING FOR MODEL-AVERAGING! ###
+## Plot residuals vs fitted values (gls.exp_clust_blacks)
+#F1_alien <- fitted(gls_avg_blacks, full=TRUE)
+#E1_alien <- resid(gls_avg_blacks, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+#par(mfrow = c(1,1), mar = c(5,5,2,2))
+#plot(x = F1_alien, 
+#     y = E1_alien,
+#     xlab = "Fitted values - alien",
+#     ylab = "Pearson residuals - alien",
+#     cex.lab = 1.5)
+#abline(h = 0, lty = 2)
 
-# Plot the residuals vs each covariate     
-TrdRast_clust_model@data$Resid_alien <- E1_alien
-Myxyplot(TrdRast_clust_model@data, MyVar2[-4], "Resid_alien")
-TrdRast_clust_model@data$Resid_alien <- NULL
-
-# Histogram of the residuals to check is they are Gaussian:
-par(mfrow=c(1,1))
-par(mar=c(5.1,4.1,4.1,2.1))
-hist(E1_alien)
-
-# Plot residuals vs fitted values (gls.exp_clust_all)
-F1_all <- fitted(gls_clust_all)
-E1_all <- resid(gls_clust_all, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
-par(mfrow = c(1,1), mar = c(5,5,2,2))
-plot(x = F1_all, 
-     y = E1_all,
-     xlab = "Fitted values - all",
-     ylab = "Pearson residuals - all",
-     cex.lab = 1.5)
-abline(h = 0, lty = 2)
-
-# Plot the residuals vs each covariate     
-TrdRast_clust_model@data$Resid_all <- E1_all
-Myxyplot(TrdRast_clust_model@data, MyVar2[-4], "Resid_all")
-TrdRast_clust_model@data$Resid_all <- NULL
+## Plot the residuals vs each covariate     
+#TrdRast_clust_model@data$Resid_alien <- E1_alien
+#Myxyplot(TrdRast_clust_model@data, MyVar2[-4], "Resid_alien")
+#TrdRast_clust_model@data$Resid_alien <- NULL
 
 # Histogram of the residuals to check is they are Gaussian:
-par(mfrow=c(1,1))
-par(mar=c(5.1,4.1,4.1,2.1))
-hist(E1_all)
+#par(mfrow=c(1,1))
+#par(mar=c(5.1,4.1,4.1,2.1))
+#hist(E1_alien)
 
-# QQ-plots
-qqnorm(gls_clust_reds, abline=c(0,1))
+## Plot residuals vs fitted values (gls.exp_clust_all)
+#F1_all <- fitted(gls_clust_all)
+#E1_all <- resid(gls_clust_all, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+#par(mfrow = c(1,1), mar = c(5,5,2,2))
+#plot(x = F1_all, 
+#     y = E1_all,
+#     xlab = "Fitted values - all",
+#     ylab = "Pearson residuals - all",
+#     cex.lab = 1.5)
+#abline(h = 0, lty = 2)
+
+## Plot the residuals vs each covariate     
+#TrdRast_clust_model@data$Resid_all <- E1_all
+#Myxyplot(TrdRast_clust_model@data, MyVar2[-4], "Resid_all")
+#TrdRast_clust_model@data$Resid_all <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+#par(mfrow=c(1,1))
+#par(mar=c(5.1,4.1,4.1,2.1))
+#hist(E1_all)
+
+# QQ-plots - not quite working for model averaging either
+qqnorm(gls_avg_reds, abline=c(0,1))
+qqnorm(gls_avg_blacks$coefficients[1,])
+qqnorm(gls_avg_all$coefficients[1,])
 qqnorm(gls_clust_blacks, abline=c(0,1))
 qqnorm(gls_clust_all, abline=c(0,1))
+
 
 
 ##--- 3.4.3.1 Plots of model coefficients ---####
@@ -867,7 +933,7 @@ qqnorm(gls_clust_all, abline=c(0,1))
 par(mfrow=c(1,1))
 par(mar=c(10,4.1,0.5,2.1))
 plot(1, type="n", xlab="", ylab="Model coefficient", xlim=c(1, 11), ylim=c(-1.5, 4.5), xaxt="n")
-axis(1, at=c(1:11), labels=c("(1) Coastal \n(Intercept)", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
+axis(1, at=c(1:11), labels=c("(1) Coastal", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
                              "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
                              "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
                              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
@@ -876,9 +942,9 @@ abline(h=0, lty=2, col="gray")
 
 ### Threatened ####
 # Cluster 1
-segments( 0.9, coef(summary(gls_clust_reds))[1,1] - coef(summary(gls_clust_reds))[1,2],  
-          x1=0.9, y1=coef(summary(gls_clust_reds))[1,1] + coef(summary(gls_clust_reds))[1,2], col="red")
-      points(0.9, (coef(summary(gls_clust_reds))[1,1]), pch=20, col="red")
+segments( 0.9, coef(summary(gls_avg_reds))[1,1] - coef(summary(gls_avg_reds))[1,2],  
+          x1=0.9, y1=coef(summary(gls_avg_reds))[1,1] + coef(summary(gls_avg_reds))[1,2], col="red")
+      points(0.9, (coef(summary(gls_avg_reds))[1,1]), pch=20, col="red")
 # Cluster 2
 segments( 1.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
@@ -1108,6 +1174,89 @@ segments(10.9, coef(summary(gls_clust_reds))[11,1] - coef(summary(gls_clust_reds
               x1=11.1, y1=coef(summary(gls_clust_blacks))[11,1] + coef(summary(gls_clust_blacks))[11,2])
     points(11.1, (coef(summary(gls_clust_blacks))[11,1]), pch=20)
     
+### AVG.model
+    
+# Cluster 1
+segments( 1.1, summary(gls_avg_blacks)$coefmat.full[1,1] - summary(gls_avg_blacks)$coefmat.full[1,3],  
+          x1=1.1, y1=summary(gls_avg_blacks)$coefmat.full[1,1] + summary(gls_avg_blacks)$coefmat.full[1,3], col="black")
+points(1.1, (summary(gls_avg_blacks)$coefmat.full[1,1]), pch=20, col="black")
+    
+# Cluster 2 
+{cl2_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+segments( 2.1, (summary(cl2_blacks)$coefmat.full[1,1] - summary(cl2_blacks)$coefmat.full[1,3]),  
+          x1=2.1, y1=(summary(cl2_blacks)$coefmat.full[1,1] + summary(cl2_blacks)$coefmat.full[1,3]), col="black")
+points(2.1, summary(cl2_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl2_blacks)}
+
+# Cluster 3
+{cl3_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3.1, (summary(cl3_blacks)$coefmat.full[1,1] - summary(cl3_blacks)$coefmat.full[1,3]),  
+            x1=3.1, y1=(summary(cl3_blacks)$coefmat.full[1,1] + summary(cl3_blacks)$coefmat.full[1,3]), col="black")
+points(3.1, summary(cl3_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl3_blacks)}
+    
+    
+# Cluster 4
+{cl4_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4.1, (summary(cl4_blacks)$coefmat.full[1,1] - summary(cl4_blacks)$coefmat.full[1,3]),  
+            x1=4.1, y1=(summary(cl4_blacks)$coefmat.full[1,1] + summary(cl4_blacks)$coefmat.full[1,3]), col="black")
+points(4.1, summary(cl4_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl4_blacks)}
+    
+        
+# Cluster 5
+{cl5_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5.1, (summary(cl5_blacks)$coefmat.full[1,1] - summary(cl5_blacks)$coefmat.full[1,3]),  
+            x1=5.1, y1=(summary(cl5_blacks)$coefmat.full[1,1] + summary(cl5_blacks)$coefmat.full[1,3]), col="black")
+points(5.1, summary(cl5_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl5_blacks)}
+    
+    
+# Cluster 6
+{cl6_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6.1, (summary(cl6_blacks)$coefmat.full[1,1] - summary(cl6_blacks)$coefmat.full[1,3]),  
+            x1=6.1, y1=(summary(cl6_blacks)$coefmat.full[1,1] + summary(cl6_blacks)$coefmat.full[1,3]), col="black")
+points(6.1, summary(cl6_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl6_blacks)}
+    
+    
+# Cluster 7
+{cl7_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7.1, (summary(cl7_blacks)$coefmat.full[1,1] - summary(cl7_blacks)$coefmat.full[1,3]),  
+          x1=7.1, y1=(summary(cl7_blacks)$coefmat.full[1,1] + summary(cl7_blacks)$coefmat.full[1,3]), col="black")
+points(7.1, summary(cl7_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl7_blacks)}
+    
+    
+# Cluster 8
+{cl8_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8.1, (summary(cl8_blacks)$coefmat.full[1,1] - summary(cl8_blacks)$coefmat.full[1,3]),  
+            x1=8.1, y1=(summary(cl8_blacks)$coefmat.full[1,1] + summary(cl8_blacks)$coefmat.full[1,3]), col="black")
+points(8.1, summary(cl8_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl8_blacks)}
+    
+    
+# Cluster 11
+{cl11_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9.1, (summary(cl11_blacks)$coefmat.full[1,1] - summary(cl11_blacks)$coefmat.full[1,3]),  
+            x1=9.1, y1=(summary(cl11_blacks)$coefmat.full[1,1] + summary(cl11_blacks)$coefmat.full[1,3]), col="black")
+points(9.1, summary(cl11_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl11_blacks)}
+    
+    
+# Cluster 12
+{cl12_blacks <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10.1, (summary(cl12_blacks)$coefmat.full[1,1] - summary(cl12_blacks)$coefmat.full[1,3]),  
+            x1=10.1, y1=(summary(cl12_blacks)$coefmat.full[1,1] + summary(cl12_blacks)$coefmat.full[1,3]), col="black")
+points(10.1, summary(cl12_blacks)$coefmat.full[1,1], pch=20, col="black")
+rm(cl12_blacks)}
+    
+    
+# Habitat heterogeneity    
+segments(11.1, summary(gls_avg_blacks)$coefmat.full[11,1] - summary(gls_avg_blacks)$coefmat.full[11,3],
+          x1=11.1, y1=summary(gls_avg_blacks)$coefmat.full[11,1] + summary(gls_avg_blacks)$coefmat.full[11,3]) 
+points(11.1, summary(gls_avg_blacks)$coefmat.full[11,1], pch=20)
+    
     
 ## All ####
     # Cluster 1
@@ -1228,554 +1377,93 @@ segments( 11, coef(summary(gls_clust_all))[11,1] - coef(summary(gls_clust_all))[
   points(11, (coef(summary(gls_clust_all))[11,1]), pch=20, col="blue")
 
   
-legend("topright", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
+### AVG.model
 
-##-------####
-
-##--- 3.4.3.2 Other versions of the coefficient plots ---####
-##-------------------------------------------------------####
-## All species along the x-axis, threatened and alien along the y axis ####
-
-# Make an empty plot:
-par(mar=c(5.1,4.1,0.5,2.1))
-plot(1, type="n", xlab="Model coefficients, all species", ylab="Model coeffiecient, threatened and alien species",
-     xlim=c(0, 5), ylim=c(-1.5, 2.5))
-# Threatened vs. all
-points(x=c(coef(summary(gls_clust_all))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls_clust_all))[11,1]),
-       y=c(coef(summary(gls_clust_reds))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls_clust_reds))[11,1]), pch=19,
-       col=c("blue", "hotpink", "red", "orange", "palegreen", "green", "lightcyan", "forestgreen", "yellow", "cyan", "gray"))
-
-# Alien vs. all
-points(x=c(coef(summary(gls_clust_all))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls_clust_all))[11,1]),
-       y=c(coef(summary(gls_clust_blacks))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-           coef(summary(gls_clust_blacks))[11,1]), pch=17,
-       col=c("blue", "hotpink", "red", "orange", "palegreen", "green", "lightcyan", "forestgreen", "yellow", "cyan", "gray"))
-
-legend("topleft", legend = c("Threatened species", "Alien species", "Coastal (1)", "Urban/developed (2)",
-                             "Urban/vegetated/riparian (3)", "Cultivated (4)", "Coniferous forest, low production (5)",
-                             "Coniferous forest, medium production (6)", "Open marsh and conif. forest (7)",
-                             "Coniferous forest, high production (8)", "Open firm ground and cultivated land (11)",
-                             "Freshwater (12)", "Habitat heterogeneity"), cex = 0.6,
-       pch=c(1,2, rep(15,11)), col=c("black", "black", "blue", "hotpink", "red", "orange", "palegreen", "green",
-                                     "lightcyan", "forestgreen", "yellow", "cyan", "gray"))
-
-# This doesn't immediately tell us much - if needed, the std.errors can be added (the code for that has not been added yet)
-
-
-
-## Coefficients minus the mean coefficient value for each model ####
-
-mean.coef.all <- mean(c(coef(summary(gls_clust_all))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls_clust_all))[11,1]))
-
-mean.coef.reds <- mean(c(coef(summary(gls_clust_reds))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls_clust_reds))[11,1]))
-
-mean.coef.blacks <- mean(c(coef(summary(gls_clust_blacks))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1],
-                        coef(summary(gls_clust_blacks))[11,1]))
-
-# Make the plot - for each point/segment, the mean coeffiecient is subtracted - thus, the plot is only useful for
-# comparing the importance of each coefficient for the model relative to the other models:
-par(mfrow=c(1,1))
-par(mar=c(10,4.1,0.5,2.1))
-plot(1, type="n", xlab="", ylab="Model coefficient - mean of all model coefficients", xlim=c(1, 11), ylim=c(-2.5, 1.5), xaxt="n")
-axis(1, at=c(1:11), labels=c("(1) Coastal \n(Intercept)", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
-                             "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
-                             "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
-                             "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
-                             "(12) Freshwater", "Habitat \nheterogeneity"), las=2)
-abline(h=0, lty=2, col="gray")
-
-### Threatened ####
 # Cluster 1
-segments( 0.9, (coef(summary(gls_clust_reds))[1,1] - mean.coef.reds) - coef(summary(gls_clust_reds))[1,2],  
-          x1=0.9, y1=(coef(summary(gls_clust_reds))[1,1] - mean.coef.reds) + coef(summary(gls_clust_reds))[1,2], col="red")
-points(0.9, (coef(summary(gls_clust_reds))[1,1])- mean.coef.reds, pch=20, col="red")
-# Cluster 2
-segments( 1.9, ((coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds) -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=1.9, y1=((coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds) +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(1.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-# Cluster 3
-segments( 2.9, ((coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds) -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=2.9, y1=((coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds) +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(2.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
+segments( 1, summary(gls_avg_all)$coefmat.full[1,1] - summary(gls_avg_all)$coefmat.full[1,3],  
+          x1=1, y1=summary(gls_avg_all)$coefmat.full[1,1] + summary(gls_avg_all)$coefmat.full[1,3], col="blue")
+points(1, (summary(gls_avg_all)$coefmat.full[1,1]), pch=20, col="blue")
 
-# Cluster 4
-segments( 3.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=3.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(3.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 5
-segments( 4.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=4.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(4.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 6
-segments( 5.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=5.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(5.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 7
-segments( 6.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=6.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(6.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 8
-segments( 7.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=7.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(7.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 11
-segments( 8.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=8.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(8.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-# Cluster 12
-segments( 9.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds -
-                  coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=9.9, y1=(coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds +
-                        coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
-points(9.9, coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.reds, pch=20, col="red")
-
-segments(10.9, coef(summary(gls_clust_reds))[11,1]- mean.coef.reds - coef(summary(gls_clust_reds))[11,2],  # Habitat diversity
-         x1=10.9, y1=coef(summary(gls_clust_reds))[11,1]- mean.coef.reds + coef(summary(gls_clust_reds))[11,2], col="red")
-points(10.9, (coef(summary(gls_clust_reds))[11,1]- mean.coef.reds), pch=20, col="red")
-
-
-## Alien ####
-# Cluster 1
-segments( 1.1, coef(summary(gls_clust_blacks))[1,1]- mean.coef.blacks - coef(summary(gls_clust_blacks))[1,2],  
-          x1=1.1, y1=coef(summary(gls_clust_blacks))[1,1]- mean.coef.blacks + coef(summary(gls_clust_blacks))[1,2], col="black")
-points(1.1, (coef(summary(gls_clust_blacks))[1,1]- mean.coef.blacks), pch=20, col="black")
-
-# Cluster 2
-segments( 2.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=2.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(2.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+# Cluster 2 
+{cl2_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+  segments(2, (summary(cl2_all)$coefmat.full[1,1] - summary(cl2_all)$coefmat.full[1,3]),  
+            x1=2, y1=(summary(cl2_all)$coefmat.full[1,1] + summary(cl2_all)$coefmat.full[1,3]), col="blue")
+  points(2, summary(cl2_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl2_all)}
 
 # Cluster 3
-segments( 3.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=3.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(3.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl3_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3, (summary(cl3_all)$coefmat.full[1,1] - summary(cl3_all)$coefmat.full[1,3]),  
+            x1=3, y1=(summary(cl3_all)$coefmat.full[1,1] + summary(cl3_all)$coefmat.full[1,3]), col="blue")
+  points(3, summary(cl3_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl3_all)}
+
 
 # Cluster 4
-segments( 4.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=4.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(4.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl4_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4, (summary(cl4_all)$coefmat.full[1,1] - summary(cl4_all)$coefmat.full[1,3]),  
+            x1=4, y1=(summary(cl4_all)$coefmat.full[1,1] + summary(cl4_all)$coefmat.full[1,3]), col="blue")
+  points(4, summary(cl4_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl4_all)}
+
 
 # Cluster 5
-segments( 5.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=5.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(5.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl5_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5, (summary(cl5_all)$coefmat.full[1,1] - summary(cl5_all)$coefmat.full[1,3]),  
+            x1=5, y1=(summary(cl5_all)$coefmat.full[1,1] + summary(cl5_all)$coefmat.full[1,3]), col="blue")
+  points(5, summary(cl5_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl5_all)}
+
 
 # Cluster 6
-segments( 6.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=6.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(6.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl6_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6, (summary(cl6_all)$coefmat.full[1,1] - summary(cl6_all)$coefmat.full[1,3]),  
+            x1=6, y1=(summary(cl6_all)$coefmat.full[1,1] + summary(cl6_all)$coefmat.full[1,3]), col="blue")
+  points(6, summary(cl6_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl6_all)}
+
 
 # Cluster 7
-segments( 7.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=7.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(7.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl7_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7, (summary(cl7_all)$coefmat.full[1,1] - summary(cl7_all)$coefmat.full[1,3]),  
+            x1=7, y1=(summary(cl7_all)$coefmat.full[1,1] + summary(cl7_all)$coefmat.full[1,3]), col="blue")
+  points(7, summary(cl7_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl7_all)}
+
 
 # Cluster 8
-segments( 8.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=8.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(8.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl8_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8, (summary(cl8_all)$coefmat.full[1,1] - summary(cl8_all)$coefmat.full[1,3]),  
+            x1=8, y1=(summary(cl8_all)$coefmat.full[1,1] + summary(cl8_all)$coefmat.full[1,3]), col="blue")
+  points(8, summary(cl8_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl8_all)}
+
 
 # Cluster 11
-segments( 9.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                  coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=9.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                        coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(9.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl11_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9, (summary(cl11_all)$coefmat.full[1,1] - summary(cl11_all)$coefmat.full[1,3]),  
+            x1=9, y1=(summary(cl11_all)$coefmat.full[1,1] + summary(cl11_all)$coefmat.full[1,3]), col="blue")
+  points(9, summary(cl11_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl11_all)}
+
 
 # Cluster 12
-segments( 10.1, (coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                  correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks -
-                   coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                    correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=10.1, y1=(coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                        correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks +
-                         coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                          correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
-points(10.1, coef(summary(gls(log_chao.blacks ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                              correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.blacks, pch=20, col="black")
+{cl12_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10, (summary(cl12_all)$coefmat.full[1,1] - summary(cl12_all)$coefmat.full[1,3]),  
+            x1=10, y1=(summary(cl12_all)$coefmat.full[1,1] + summary(cl12_all)$coefmat.full[1,3]), col="blue")
+  points(10, summary(cl12_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl12_all)}
+
 
 # Habitat heterogeneity    
-segments( 11.1, coef(summary(gls_clust_blacks))[11,1]- mean.coef.blacks - coef(summary(gls_clust_blacks))[11,2],
-          x1=11.1, y1=coef(summary(gls_clust_blacks))[11,1]- mean.coef.blacks + coef(summary(gls_clust_blacks))[11,2])
-points(11.1, (coef(summary(gls_clust_blacks))[11,1]- mean.coef.blacks), pch=20)
-
-
-## All ####
-# Cluster 1
-segments( 1, coef(summary(gls_clust_all))[1,1]- mean.coef.all - coef(summary(gls_clust_all))[1,2],  
-          x1=1, y1=coef(summary(gls_clust_all))[1,1]- mean.coef.all + coef(summary(gls_clust_all))[1,2], col="blue")
-points(1, (coef(summary(gls_clust_all))[1,1]- mean.coef.all), pch=20, col="blue")
-
-# Cluster 2
-segments( 2, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=2, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(2, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 3
-segments( 3, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=3, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(3, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 4
-segments( 4, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=4, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(4, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 5
-segments( 5, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=5, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(5, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 6
-segments( 6, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=6, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(6, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 7
-segments( 7, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=7, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(7, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 8
-segments( 8, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=8, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(8, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 11
-segments( 9, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                  coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=9, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                        coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(9, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
-                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Cluster 12
-segments( 10, (coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                  correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all -
-                   coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                    correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
-          x1=10, y1=(coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                        correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all +
-                         coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                                          correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
-points(10, coef(summary(gls(log_chao.all ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
-                              correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1]- mean.coef.all, pch=20, col="blue")
-
-# Hab. heterogenity    
-segments( 11, coef(summary(gls_clust_all))[11,1]- mean.coef.all - coef(summary(gls_clust_all))[11,2],  
-          x1=11, y1=coef(summary(gls_clust_all))[11,1]- mean.coef.all + coef(summary(gls_clust_all))[11,2], col="blue")
-points(11, (coef(summary(gls_clust_all))[11,1]- mean.coef.all), pch=20, col="blue")
-
+segments(11, summary(gls_avg_all)$coefmat.full[2,1] - summary(gls_avg_all)$coefmat.full[2,3],
+         x1=11, y1=summary(gls_avg_all)$coefmat.full[2,1] + summary(gls_avg_all)$coefmat.full[2,3], col="blue") 
+points(11, summary(gls_avg_all)$coefmat.full[2,1], pch=20, col="blue")
 
 legend("topright", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
 
-##-------####
 
+##-------####
 
 ##--- 3.5 Making predictions from models  ---####
 ##-------------------------------------------####
@@ -1795,127 +1483,43 @@ data_predict_clust$predict_reds <- predict(gls_clust_reds, newdata=data_predict_
 data_predict_clust$predict_blacks <- predict(gls_clust_blacks, newdata=data_predict_clust)
 data_predict_clust$predict_all <- predict(gls_clust_all, newdata=data_predict_clust)
 
+### Make the predictions for threatened, alien and all species with the averaged models:
+    # Potentiallt run this again, of the predictions fail: gls_avg_blacks <- model.avg(output_black, fit=TRUE)
+data_predict_clust$predict_reds.avg <- predict(gls_avg_reds, newdata=data_predict_clust)                      # add 'se.fit=TRUE' if you want the standars errors returned
+data_predict_clust$predict_blacks.avg <- predict(gls_avg_blacks, newdata=data_predict_clust, full=TRUE)
+data_predict_clust$predict_all.avg <- predict(gls_avg_all, newdata=data_predict_clust, full=TRUE)
+
 
 range(data_predict_clust$predict_reds)        
 range(data_predict_clust$predict_blacks)
 range(data_predict_clust$predict_all)
+
+range(data_predict_clust$predict_reds.avg)        
+range(data_predict_clust$predict_blacks.avg)
+range(data_predict_clust$predict_all.avg)
 
 # Back-transform the predictions:
 data_predict_clust$predict_blacks_number <- (exp(data_predict_clust@data$predict_blacks))-1
 data_predict_clust$predict_reds_number <- (exp(data_predict_clust@data$predict_reds))-1
 data_predict_clust$predict_all_number <- (exp(data_predict_clust@data$predict_all))-1
 
+data_predict_clust$predict_blacks_number.avg <- (exp(data_predict_clust@data$predict_blacks.avg))-1
+data_predict_clust$predict_reds_number.avg <- (exp(data_predict_clust@data$predict_reds.avg))-1
+data_predict_clust$predict_all_number.avg <- (exp(data_predict_clust@data$predict_all.avg))-1
+
 range(data_predict_clust$predict_reds_number)
 range(data_predict_clust$predict_blacks_number)
 range(data_predict_clust$predict_all_number)
 
-
-
-##--- 3.5.1 Make the vectors with colour names           ---####
-##----------------------------------------------------------####
-# Get the numbers to base the colour on:
-col_ESR_red_vec <- c(TrdRast_clust_model@data$log_chao.reds)
-col_ESR_black_vec <- c(TrdRast_clust_model@data$log_chao.blacks)
-col_pred_red_vec <- c(data_predict_clust@data$predict_reds)
-col_pred_black_vec <- c(data_predict_clust@data$predict_blacks)
-
-# The vectors with colour names needs to have the same range, if the maps are to be comparable
-# Chao1:
-col_ESR_red <- rep(0, length(col_ESR_red_vec))
-for(i in 1:length(col_ESR_red_vec)){
-  col_ESR_red[i] <- ifelse(col_ESR_red_vec[i]>-0.5 & col_ESR_red_vec[i]<=0, paste("#7F00FFFF"),
-                           ifelse(col_ESR_red_vec[i]>0 & col_ESR_red_vec[i]<=0.5, paste("#001AFFFF"),
-                           ifelse(col_ESR_red_vec[i]>0.5 & col_ESR_red_vec[i]<=1, paste("#00B3FFFF"),
-                           ifelse(col_ESR_red_vec[i]>1 & col_ESR_red_vec[i]<=1.5, paste("#00FFFFFF"),
-                           ifelse(col_ESR_red_vec[i]>1.5 & col_ESR_red_vec[i]<=2, paste("#00FF19FF"),
-                           ifelse(col_ESR_red_vec[i]>2 & col_ESR_red_vec[i]<=2.5, paste("#80FF00FF"),
-                           ifelse(col_ESR_red_vec[i]>2.5 & col_ESR_red_vec[i]<=3, paste("#FFE500FF"),
-                           ifelse(col_ESR_red_vec[i]>3 & col_ESR_red_vec[i]<=3.5, paste("#FF9900FF"),
-                           ifelse(col_ESR_red_vec[i]>3.5 & col_ESR_red_vec[i]<=4, paste("#FF4D00FF"),
-                           ifelse(col_ESR_red_vec[i]>4 & col_ESR_red_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
-}
-
-col_ESR_black <- rep(0, length(col_ESR_black_vec))
-for(i in 1:length(col_ESR_black_vec)){
-  col_ESR_black[i] <- ifelse(col_ESR_black_vec[i]>-0.5 & col_ESR_black_vec[i]<=0, paste("#7F00FFFF"),
-                             ifelse(col_ESR_black_vec[i]>0 & col_ESR_black_vec[i]<=0.5, paste("#001AFFFF"),
-                             ifelse(col_ESR_black_vec[i]>0.5 & col_ESR_black_vec[i]<=1, paste("#00B3FFFF"),
-                             ifelse(col_ESR_black_vec[i]>1 & col_ESR_black_vec[i]<=1.5, paste("#00FFFFFF"),
-                             ifelse(col_ESR_black_vec[i]>1.5 & col_ESR_black_vec[i]<=2, paste("#00FF19FF"),
-                             ifelse(col_ESR_black_vec[i]>2 & col_ESR_black_vec[i]<=2.5, paste("#80FF00FF"),
-                             ifelse(col_ESR_black_vec[i]>2.5 & col_ESR_black_vec[i]<=3, paste("#FFE500FF"),
-                             ifelse(col_ESR_black_vec[i]>3 & col_ESR_black_vec[i]<=3.5, paste("#FF9900FF"),
-                             ifelse(col_ESR_black_vec[i]>3.5 & col_ESR_black_vec[i]<=4, paste("#FF4D00FF"),
-                             ifelse(col_ESR_black_vec[i]>4 & col_ESR_black_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
-}
-
-# Predicted:
-col_pred_red <- rep(0, length(col_pred_red_vec))
-for(i in 1:length(col_pred_red_vec)){
-  col_pred_red[i] <- ifelse(col_pred_red_vec[i]>-0.5 & col_pred_red_vec[i]<=0, paste("#7F00FFFF"),
-                            ifelse(col_pred_red_vec[i]>0 & col_pred_red_vec[i]<=0.5, paste("#001AFFFF"),
-                            ifelse(col_pred_red_vec[i]>0.5 & col_pred_red_vec[i]<=1, paste("#00B3FFFF"),
-                            ifelse(col_pred_red_vec[i]>1 & col_pred_red_vec[i]<=1.5, paste("#00FFFFFF"),
-                            ifelse(col_pred_red_vec[i]>1.5 & col_pred_red_vec[i]<=2, paste("#00FF19FF"),
-                            ifelse(col_pred_red_vec[i]>2 & col_pred_red_vec[i]<=2.5, paste("#80FF00FF"),
-                            ifelse(col_pred_red_vec[i]>2.5 & col_pred_red_vec[i]<=3, paste("#FFE500FF"),
-                            ifelse(col_pred_red_vec[i]>3 & col_pred_red_vec[i]<=3.5, paste("#FF9900FF"),
-                            ifelse(col_pred_red_vec[i]>3.5 & col_pred_red_vec[i]<=4, paste("#FF4D00FF"),
-                            ifelse(col_pred_red_vec[i]>4 & col_pred_red_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
-}
-
-col_pred_black <- rep(0, length(col_pred_black_vec))
-for(i in 1:length(col_pred_black_vec)){
-  col_pred_black[i] <- ifelse(col_pred_black_vec[i]>-0.5 & col_pred_black_vec[i]<=0, paste("#7F00FFFF"),
-                              ifelse(col_pred_black_vec[i]>0 & col_pred_black_vec[i]<=0.5, paste("#001AFFFF"),
-                              ifelse(col_pred_black_vec[i]>0.5 & col_pred_black_vec[i]<=1, paste("#00B3FFFF"),
-                              ifelse(col_pred_black_vec[i]>1 & col_pred_black_vec[i]<=1.5, paste("#00FFFFFF"),
-                              ifelse(col_pred_black_vec[i]>1.5 & col_pred_black_vec[i]<=2, paste("#00FF19FF"),
-                              ifelse(col_pred_black_vec[i]>2 & col_pred_black_vec[i]<=2.5, paste("#80FF00FF"),
-                              ifelse(col_pred_black_vec[i]>2.5 & col_pred_black_vec[i]<=3, paste("#FFE500FF"),
-                              ifelse(col_pred_black_vec[i]>3 & col_pred_black_vec[i]<=3.5, paste("#FF9900FF"),
-                              ifelse(col_pred_black_vec[i]>3.5 & col_pred_black_vec[i]<=4, paste("#FF4D00FF"),
-                              ifelse(col_pred_black_vec[i]>4 & col_pred_black_vec[i]<4.5, paste("#FF0000FF"), '#BEBEBE'))))))))))
-}
+range(data_predict_clust$predict_reds_number.avg)
+range(data_predict_clust$predict_blacks_number.avg)
+range(data_predict_clust$predict_all_number.avg)
 
 
 
 
-##--- 3.5.2 Make the maps                                ---####
-##----------------------------------------------------------####
-#par(mfrow=c(2,2))
-#par(mar=c(0.5,0.5,6,1))
-
-layout(rbind(c(1,2,3), c(4,5,3)), widths=c(4,4,1))
-par(mar=c(0.5,0.5,6,0.5))
-
-# Threatened species:
-DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of threatened species) \n in 500m x 500m cell")
-plot(TrdRast_clust_model[, "log_chao.reds"],
-     col=col_ESR_red, border=col_ESR_red, add=T, cex.main=0.75)
-
-DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell \n(area of land cover)")
-plot(data_predict_clust,
-     col=col_pred_red, border=col_pred_red, add=T, cex.main=0.75)
-
-plot(0,type='n',axes=FALSE,ann=FALSE)
-legend("center", legend=c("-3-(-1)", "-1-0", "0-0.5", "0.5-1", "1-1.5",
-                          "1.5-2", "2-2.5", "2.5-3", "3-3.5", "3.5-4"),
-       fill=c("#7F00FFFF", "#001AFFFF", "#00B3FFFF", "#00FFFFFF", "#00FF19FF",
-              "#80FF00FF", "#FFE500FF", "#FF9900FF", "#FF4D00FF", "#FF0000FF"), bty="n", cex=1)
-
-
-# Alien species:
-DivMap(AR5, Trondheim, TrdRast_AR5, "log(ESR of alien species) \nin 500m x 500m cell")
-plot(TrdRast_clust_model[, "log_chao.blacks"],
-     col=col_ESR_black, border=col_ESR_black, add=T, cex.main=0.75)
-
-DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell \n(area of land cover)")
-plot(data_predict_clust,
-     col=col_pred_black, border=col_pred_black, add=T, cex.main=0.75)
-
-
-##--- 3.5.3 BETTER MAPS ---####
+##--- 3.5.1 BETTER MAPS ---####
+##--- OBS! model.avg    ---####
 ##-------------------------####
 library(RColorBrewer)
 col.reds <- colorRampPalette(c("white","#FF0000"))
@@ -1941,18 +1545,18 @@ axis(4,cex.axis=0.8,mgp=c(0,.5,0),
      labels = c(4, 500, 1000, 1500, 2000, 2500, 3000, 3500),
      at=c(4, 500, 1000, 1500, 2000, 2500, 3000, 3500))
 
-palette(col.all(144))
+palette(col.all(102))  # max(data_predict_clust@data$predict_all_number.avg)  
 par(mar=c(0.5,0.5,6,0.5))
 DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of all \nspecies in 500m x 500m cell")
 plot(data_predict_clust,
-     col= data_predict_clust@data$predict_all_number,
-     border=data_predict_clust@data$predict_all_number,
+     col= data_predict_clust@data$predict_all_number.avg,
+     border=data_predict_clust@data$predict_all_number.avg,
      add=T, cex.main=0.75)
 plot(Trondheim, add=TRUE, lty=2) 
 par(mar=c(0.5,0.5,6,4))
-image(y=(0:(max(data_predict_clust@data$predict_all_number))),
-      z=t(0:(max(data_predict_clust@data$predict_all_number))),
-      col=palette(col.all(144)), axes=FALSE, main="# \nspecies", cex.main=.75)
+image(y=(0:(max(data_predict_clust@data$predict_all_number.avg))),
+      z=t(0:(max(data_predict_clust@data$predict_all_number.avg))),
+      col=palette(col.all(102)), axes=FALSE, main="# \nspecies", cex.main=.75)
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 # Threatened species:
@@ -1969,19 +1573,21 @@ image(y=0:37,z=t(0:37), col=palette(col.reds(37+1)), axes=FALSE, main="# \nspeci
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
 
-palette(col.reds(16))
+palette(col.reds(159))   # max(data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10 
 par(mar=c(0.5,0.5,6,0.5))
 DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell")
 plot(data_predict_clust,
-     col= data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)),
-     border=data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)),
+     col= (data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10,
+     border=(data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10,
      add=T, cex.main=0.75)
 plot(Trondheim, add=TRUE, lty=2) 
 par(mar=c(0.5,0.5,6,4))
-image(y=(min(data_predict_clust@data$predict_reds_number)+abs(min(data_predict_clust@data$predict_reds_number))):(max(data_predict_clust@data$predict_reds_number)+abs(min(data_predict_clust@data$predict_reds_number))),
-      z=t((min(data_predict_clust@data$predict_reds_number)):(max(data_predict_clust@data$predict_reds_number))),
-      col=palette(col.reds(16)), axes=FALSE, main="# \nspecies", cex.main=.75)
-axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+image(y=min((data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10) : max((data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10),
+      z=t(min((data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10) : max((data_predict_clust@data$predict_reds_number.avg + abs(min(data_predict_clust@data$predict_reds_number.avg)))*10)),
+      col=palette(col.reds(159)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels=c("0", "2", "5", "10", "15"),
+     at=c(0, 20, 50, 100, 150))
 
 # Alien species:
 palette(col.blacks(66+1))
@@ -1996,18 +1602,18 @@ par(mar=c(0.5,0.5,6,4))
 image(y=0:66,z=t(0:66), col=palette(col.blacks(66+1)), axes=FALSE, main="# \nspecies", cex.main=.75)
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
 
-palette(col.blacks(34))
+palette(col.blacks(30))   # max(data_predict_clust@data$predict_blacks_number.avg + abs(min(data_predict_clust@data$predict_blacks_number.avg))) *10
 par(mar=c(0.5,0.5,6,0.5))
 DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell")
 plot(data_predict_clust,
-     col=(data_predict_clust@data$predict_blacks_number + abs(min(data_predict_clust@data$predict_blacks_number)))*10,
-     border=(data_predict_clust@data$predict_blacks_number + abs(min(data_predict_clust@data$predict_blacks_number)))*10,
+     col=(data_predict_clust@data$predict_blacks_number.avg + abs(min(data_predict_clust@data$predict_blacks_number.avg)))*10,
+     border=(data_predict_clust@data$predict_blacks_number.avg + abs(min(data_predict_clust@data$predict_blacks_number.avg)))*10,
      add=T, cex.main=0.75)
 plot(Trondheim, add=TRUE, lty=2) 
 par(mar=c(0.5,0.5,6,4))
-image(y=((min(data_predict_clust@data$predict_blacks_number)+abs(min(data_predict_clust@data$predict_blacks_number)))*10):((max(data_predict_clust@data$predict_blacks_number)+abs(min(data_predict_clust@data$predict_blacks_number)))*10),
-      z=t(((min(data_predict_clust@data$predict_blacks_number))*10):((max(data_predict_clust@data$predict_blacks_number))*10)),
-      col=palette(col.blacks(34)), axes=FALSE, main="# \nspecies", cex.main=.75)
+image(y=((min(data_predict_clust@data$predict_blacks_number.avg)+abs(min(data_predict_clust@data$predict_blacks_number.avg)))*10):((max(data_predict_clust@data$predict_blacks_number.avg)+abs(min(data_predict_clust@data$predict_blacks_number.avg)))*10),
+      z=t(((min(data_predict_clust@data$predict_blacks_number.avg))*10):((max(data_predict_clust@data$predict_blacks_number.avg))*10)),
+      col=palette(col.blacks(30)), axes=FALSE, main="# \nspecies", cex.main=.75)
 axis(4, cex.axis=0.8, mgp=c(0,.5,0),
      labels=c("0", "0.5", "1", "1.5", "2", "2.5", "3"),
      at=c(0,5,10,15,20,25,30))
@@ -2020,26 +1626,72 @@ axis(4, cex.axis=0.8, mgp=c(0,.5,0),
 
 val.plot <- TrdRast_clust_model@data[, c("Pixelnr", "S.obs_2013", "S.chao1_2013", "S.obs_reds_2013", "S.chao1_reds_2013",
                                          "S.obs_blacks_2013", "S.chao1_blacks_2013", "Ntotal", "Nred", "Nblack")]
-val.plot <- merge(val.plot, data_predict_clust@data[,c("Pixelnr", "predict_all_number", "predict_reds_number",
-                                                       "predict_blacks_number")], by="Pixelnr")
+val.plot <- merge(val.plot, data_predict_clust@data[,c("Pixelnr", "predict_all.avg", "predict_reds.avg", "predict_blacks.avg",
+                                                       "predict_all_number.avg", "predict_reds_number.avg", "predict_blacks_number.avg")],
+                  by="Pixelnr")
+val.plot[is.na(val.plot)] <- 0
+
 
 par(mar=c(5,4,4,2))
 par(mfrow=c(3,4))
-plot(log(val.plot$Ntotal), val.plot$predict_all_number, ylab="Predicted # species, all", xlab="log(# records, all sp.)")
-plot(val.plot$S.obs_2013, val.plot$predict_all_number, ylab="Predicted # species, all", xlab="Observed # species, all")
-plot(0,type='n',axes=FALSE,ann=FALSE)
-plot(0,type='n',axes=FALSE,ann=FALSE)
+cor(log(val.plot$Ntotal +1), val.plot$predict_all_number.avg)  # Correlation coefficient
+    plot(log(val.plot$Ntotal +1), val.plot$predict_all_number.avg, main="coor = 0.23",
+     ylab="Predicted # species, all", xlab="log(# records, all sp. + 1)")
+      lines(smooth.spline(x=log(val.plot$Ntotal +1), y=val.plot$predict_all_number.avg))   # Spline
+cor(val.plot$S.obs_2013, val.plot$predict_all_number.avg)
+      plot(val.plot$S.obs_2013, val.plot$predict_all_number.avg, main="coor = 0.29",
+     ylab="Predicted # species, all", xlab="Observed # species, all")
+      lines(smooth.spline(x=val.plot$S.obs_2013, y=val.plot$predict_all_number.avg))    # Spline
+    plot(0,type='n',axes=FALSE,ann=FALSE)
+    plot(0,type='n',axes=FALSE,ann=FALSE)
 
-plot(log(val.plot$Ntotal), val.plot$predict_reds_number, ylab="Predicted # species, treatened", xlab="log(# records, all)")
-plot(log(val.plot$Nred), val.plot$predict_reds_number, ylab="Predicted # species, treatened", xlab="log(# records, threatened)")
-plot(val.plot$S.obs_2013, val.plot$predict_reds_number, ylab="Predicted # species, treatened", xlab="Observed # species, all")
-plot(val.plot$S.obs_reds_2013, val.plot$predict_reds_number, ylab="Predicted # species, threatened", xlab="Observed # species, threatened")
+cor(log(val.plot$Ntotal +1), val.plot$predict_reds_number.avg)
+    plot(log(val.plot$Ntotal +1), val.plot$predict_reds_number.avg, main="coor = 0.33",
+     ylab="Predicted # species, treatened", xlab="log(# records, all + 1)")
+      lines(smooth.spline(x=log(val.plot$Ntotal +1), y=val.plot$predict_reds_number.avg))   # Spline
+cor(log(val.plot$Nred +1), val.plot$predict_reds_number.avg)
+    plot(log(val.plot$Nred +1), val.plot$predict_reds_number.avg, main="coor = 0.51",
+     ylab="Predicted # species, treatened", xlab="log(# records, threatened + 1)")
+      lines(smooth.spline(x=log(val.plot$Nred +1), y=val.plot$predict_reds_number.avg))   # Spline
+cor(val.plot$S.obs_2013, val.plot$predict_reds_number.avg)
+    plot(val.plot$S.obs_2013, val.plot$predict_reds_number.avg, main="coor = 0.31",
+     ylab="Predicted # species, treatened", xlab="Observed # species, all")
+      lines(smooth.spline(x=val.plot$S.obs_2013, y=val.plot$predict_reds_number.avg))   # Spline
+cor(val.plot$S.obs_reds_2013, val.plot$predict_reds_number.avg)
+    plot(val.plot$S.obs_reds_2013, val.plot$predict_reds_number.avg, main="coor = 0.58",
+     ylab="Predicted # species, threatened", xlab="Observed # species, threatened")
+      lines(smooth.spline(x=val.plot$S.obs_reds_2013, y=val.plot$predict_reds_number.avg))   # Spline
 
-plot(log(val.plot$Ntotal), val.plot$predict_blacks_number, ylab="Predicted # species, alien", xlab="log(# records, all)")
-plot(log(val.plot$Nblack), val.plot$predict_blacks_number, ylab="Predicted # species, alien", xlab="log(# records, alien)")
-plot(val.plot$S.obs_2013, val.plot$predict_blacks_number, ylab="Predicted # species, alien", xlab="Observed # species, all")
-plot(val.plot$S.obs_blacks_2013, val.plot$predict_blacks_number, ylab="Predicted # species, alien", xlab="Observed # species, alien")
+cor(log(val.plot$Ntotal +1), val.plot$predict_blacks_number.avg)
+    plot(log(val.plot$Ntotal +1), val.plot$predict_blacks_number.avg, main="coor = 0.28",
+     ylab="Predicted # species, alien", xlab="log(# records, all + 1)")
+      lines(smooth.spline(x=log(val.plot$Ntotal +1), y=val.plot$predict_blacks_number.avg))   # Spline
+cor(log(val.plot$Nblack +1), val.plot$predict_blacks_number.avg)
+    plot(log(val.plot$Nblack +1), val.plot$predict_blacks_number.avg, main="coor = 0.49",
+     ylab="Predicted # species, alien", xlab="log(# records, alien + 1)")
+      lines(smooth.spline(x=log(val.plot$Nblack +1), y=val.plot$predict_blacks_number.avg))   # Spline
+cor(val.plot$S.obs_2013, val.plot$predict_blacks_number.avg)
+    plot(val.plot$S.obs_2013, val.plot$predict_blacks_number.avg, main="coor = 0.18",
+     ylab="Predicted # species, alien", xlab="Observed # species, all")
+      lines(smooth.spline(x=val.plot$S.obs_2013, y=val.plot$predict_blacks_number.avg))   # Spline
+cor(val.plot$S.obs_blacks_2013, val.plot$predict_blacks_number.avg)
+    plot(val.plot$S.obs_blacks_2013, val.plot$predict_blacks_number.avg, main="coor = 0.42",
+     ylab="Predicted # species, alien", xlab="Observed # species, alien")
+      lines(smooth.spline(x=val.plot$S.obs_blacks_2013, y=val.plot$predict_blacks_number.avg))   # Spline
 
+###
+par(mfrow=c(1,4))
+plot(log(val.plot$Ntotal), val.plot$predict_blacks.avg, ylab="Predicted # species, alien", xlab="log(# records, all)")
+plot(log(val.plot$Nblack), val.plot$predict_blacks.avg, ylab="Predicted # species, alien", xlab="log(# records, alien)")
+plot(val.plot$S.obs_2013, val.plot$predict_blacks.avg, ylab="Predicted # species, alien", xlab="Observed # species, all")
+plot(val.plot$S.obs_blacks_2013, val.plot$predict_blacks.avg, ylab="Predicted # species, alien", xlab="Observed # species, alien")
+
+
+data_predict_clust$num.clusterCut <- as.numeric(data_predict_clust$clusterCut)  # For a numerical version of the cluster variable
+MyVar_pred <- c("num.clusterCut", "Divers")
+par(mfrow=c(1,1))
+pairs(data_predict_clust@data[, MyVar_pred], 
+      lower.panel = panel.cor) 
 
 # Plot of sampling effort - maps coloured by the number of observed species (and potentially number of records?)
 layout(rbind(c(1,2,3,4), c(5,6,7,8), c(9,10,11,12)), widths=c(5,1,5,1))
@@ -2125,3 +1777,1489 @@ image(y=0:max(TrdRast_clust@data$Nblack),
       z=t(0:max(TrdRast_clust@data$Nblack)),
       col=palette(col.blacks(394+1)), axes=FALSE, main="# \nrecords", cex.main=.75)
 axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+
+
+### More formal testing of relative importance of the factor level variable:
+
+
+
+
+
+##--- 5. MODELS WITH STANDARDIZED RESPONSE VARIABLES ---####
+##--- 5.1 DATA EXPLORATION ---####
+##----------------------------####
+# To be able to compare the models even more, we can try to standardize the response variable - we do this by
+# dividing all the y-values (log_chao) by the mean of the group. By doing this, we center everything around
+# zero, get comparable values, and we can thus easier assess the differences and similarityes in coefficient
+# values when the models are done.
+
+# Standardize the response values - we do that by both scaling and centering:
+TrdRast_clust_model$log_chao.all.std <- scale(TrdRast_clust_model$log_chao.all, center = TRUE, scale = TRUE)
+TrdRast_clust_model$log_chao.reds.std <- scale(TrdRast_clust_model$log_chao.reds, center = TRUE, scale = TRUE) 
+TrdRast_clust_model$log_chao.blacks.std <- scale(TrdRast_clust_model$log_chao.blacks, center = TRUE, scale = TRUE)
+        # OBS! This needs to be done INCLUDING the "artificial zeros"! Otherwise we get outliers
+        # destroying the appropriate scaling 
+
+range(TrdRast_clust_model$log_chao.all.std)
+range(TrdRast_clust_model$log_chao.reds.std)
+range(TrdRast_clust_model$log_chao.blacks.std)
+
+par(mfrow=c(1,3))
+boxplot(TrdRast_clust_model@data$log_chao.all.std, main="All")
+boxplot(TrdRast_clust_model@data$log_chao.reds.std, main="Threatened")
+boxplot(TrdRast_clust_model@data$log_chao.blacks.std, main="Alien")
+
+plot(x=TrdRast_clust_model@data$log_chao.all, y=TrdRast_clust_model@data$log_chao.all.std)
+plot(x=TrdRast_clust_model@data$log_chao.reds, y=TrdRast_clust_model@data$log_chao.reds.std)
+plot(x=TrdRast_clust_model@data$log_chao.blacks, y=TrdRast_clust_model@data$log_chao.blacks.std)
+
+# An important point for why we're using the Chao-estimation rather than the raw species numbers, is to take sampling
+# effort into account - hence, we have to make see if we have a correlation between number of observed species and the
+# estimated numbers within the cells we're using for the analyses
+
+# Outliers (just to double-check):
+MyVar_std <- c("log_chao.all.std", "log_chao.reds.std", "log_chao.blacks.std",
+           "clusterCut", "nhabitat", "Divers", "Evenness", "north.mean")
+
+### Dotplots
+Mydotplot(TrdRast_clust_model@data[,MyVar_std[-4]])   
+
+### Colinearity
+pairs(TrdRast_clust_model@data[, MyVar_std], 
+      lower.panel = panel.cor)              
+
+corvif(TrdRast_clust_model@data[, MyVar_std[-c(5,7)]]) # This would severely lower the GVIFs
+
+### Relationships
+MyVar_std2 <- c("log_chao.all.std", "log_chao.reds.std", "log_chao.blacks.std",
+            "clusterCut", "Divers", "north.mean")
+
+Myxyplot(TrdRast_clust_model@data, MyVar_std2, "log_chao.reds", 
+         MyYlab = "ESR of redlisted species (m^2)")
+Myxyplot(TrdRast_clust_model@data, MyVar_std2, "log_chao.blacks", 
+         MyYlab = "ESR of alien species (m^2)")
+Myxyplot(TrdRast_clust_model@data, MyVar_std2, "log_chao.all", 
+         MyYlab = "ESR of all species (m^2)")
+
+
+##--- 5.2   PRELIMINARY MODELLING (NON-SPATIAL) ---####
+##--- 5.2.1  Model 1 - threatened species       ---####
+##-------------------------------------------------####
+
+global_M1.std <- glm(log_chao.reds.std ~  clusterCut + Divers + north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+
+### Model validation: Is everything significant?
+step(global_M1.std)       # Backwards selection using AIC
+rm(global_M1.std)
+
+# Define the "better" models:
+M1.std <- glm(log_chao.reds.std ~  clusterCut + Divers,
+          family = "gaussian",
+          data = TrdRast_clust_model@data)
+
+summary(M1.std)
+
+
+##--- 5.2.2  Model 2 - alien species ---####
+##---------------------------------------####
+global_M2.std <- glm(log_chao.blacks.std ~  clusterCut + Divers +  north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+
+### Model validation: Is everything significant?
+step(global_M2.std)       # Backwards selection using AIC
+rm(global_M2.std)
+
+M2.std <- glm(log_chao.blacks.std ~  clusterCut + Divers + north.mean,
+          family = "gaussian",
+          data = TrdRast_clust_model@data)
+
+summary(M2.std)
+
+
+##--- 5.2.3  Model 3 - all species ---####
+##------------------------------------####
+global_M3.std <- glm(log_chao.all.std ~  clusterCut + Divers +  north.mean,
+                 family = "gaussian",
+                 data = TrdRast_clust_model@data)
+
+### Model validation: Is everything significant?
+step(global_M3.std)       # Backwards selection using AIC
+rm(global_M3.std)
+
+M3.std <- glm(log_chao.all.std ~  clusterCut + Divers,
+          family = "gaussian",
+          data = TrdRast_clust_model@data)
+
+summary(M3.std)
+
+
+##--- 5.3 SPATIAL AUTOCORRELATION- threatened species ---####
+##--- 5.3.1 Testing for SAC - Chao1_reds              ---####
+##-------------------------------------------------------####
+
+# Make a correlogram:
+correlog1.std <- correlog(xy_clust[,1], xy_clust[,2], residuals(M1.std), na.rm = T, increment = 1, resamp = 0)
+
+# Plot the first 20 distance classes
+par(mfrow=c(1,1))
+par(mar=c(5,5,0.1, 0.1))
+plot(correlog1.std$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I, threatened species"); abline(h=0)
+
+# Make a map of the residuals:
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M1.std))/2+1.5], pch=19,
+     cex=abs(resid(M1.std))/max(resid(M1.std))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+
+# Look at it through Monte-Carlo simulation as well:
+MC_res_clust.std <- moran.mc(residuals(M1.std), clust.listw,
+                         zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
+MC_res_clust.std
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+plot(MC_res_clust.std, main="Threatened species")     # Our value is way beyond the curve - high levels of SAC in the data!
+abline(v=MC_res_clust.std$statistic, lty=2, col="red")
+
+##--- 5.3.2 Testing for SAC - Chao1_blacks             ---####
+##--------------------------------------------------------####
+
+# Make a correlogram:
+correlog2.std <- correlog(xy_clust[,1], xy_clust[,2], residuals(M2.std), na.rm = T, increment = 1, resamp = 0)
+
+# Plot the first 20 distance classes
+par(mfrow=c(1,1))
+par(mar=c(5,5,0.1, 0.1))
+plot(correlog2.std$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+
+# Make a map of the residuals:
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M2.std))/2+1.5], pch=19,
+     cex=abs(resid(M2.std))/max(resid(M2.std))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+
+# Look at it through Monte-Carlo simulation as well:
+MC_res2_clust.std <- moran.mc(residuals(M2.std), clust.listw,
+                          zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+plot(MC_res2_clust.std, main="Alien species")     # Our value is way beyond the curve - high levels of SAC in the data!
+abline(v=MC_res2_clust.std$statistic, lty=2, col="red")
+
+# SAC in these model residuals
+
+##--- 5.3.3 Testing for SAC - Chao1_all             ---####
+##-----------------------------------------------------####
+
+# Make a correlogram:
+correlog3.std <- correlog(xy_clust[,1], xy_clust[,2], residuals(M3.std), na.rm = T, increment = 1, resamp = 0)
+
+# Plot the first 20 distance classes
+par(mfrow=c(1,1))
+par(mar=c(5,5,0.1, 0.1))
+plot(correlog3.std$correlation[1:20], type="b", pch=16, lwd=1.5,
+     xlab="distance", ylab="Moran's I"); abline(h=0)
+
+# Make a map of the residuals:
+plot(xy_clust[,1], xy_clust[,2], col=c("blue", "red")[sign(resid(M3.std))/2+1.5], pch=19,
+     cex=abs(resid(M3.std))/max(resid(M3.std))*2, xlab="geographical x- coordinates", ylab="geographical y-coordinates")
+
+# Look at it through Monte-Carlo simulation as well:
+MC_res3_clust.std <- moran.mc(residuals(M3.std), clust.listw,
+                          zero.policy = TRUE, nsim=999)    # Using a Monce Carlo simulation (better!) (obs on the value of nsim)
+
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+plot(MC_res3_clust.std, main="All species")     # Our value is way beyond the curve - high levels of SAC in the data!
+abline(v=MC_res3_clust.std$statistic, lty=2, col="red")
+
+# SAC in these model residuals
+
+
+##--- 5.4 DEALING WITH SAC ---####
+##--- 5.4.1 Chao1_reds     ---####
+##----------------------------####
+summary(gls_ML_clust.std <- gls(log_chao.reds.std ~  clusterCut + Divers + north.mean,
+                            data = TrdRast_clust_model@data,
+                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                            method = "ML")) # We need the method to be "ML", otherwise the comparison of AIC does not work properly
+
+#stepAIC(gls_ML_clust.std)              # For unknown reasons, the standard 'step()' doesn't work - this one does
+d.red.std <- dredge(gls_ML_clust.std)
+d.red2.std <- subset(d.red.std, delta<2)
+model.sel(d.red2.std)
+output_red.std <- model.sel(d.red2.std)
+
+
+# According to the SAC-function, the best model is: log_chao.reds ~ clusterCut + Divers
+# This is similar to the optimal model for the non-spatial approach 
+
+# Define the better model(s):
+summary(gls_clust_reds.std <- gls(log_chao.reds.std ~  clusterCut + Divers,
+                              data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                              method = "ML"))
+
+# To keep consistency in naming of models:
+gls_avg_reds.std <- gls(log_chao.reds.std ~  clusterCut + Divers,
+                    data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+                    method = "ML")   
+
+
+AIC(M1.std, gls_clust_reds.std)              # The model is seemingly slightly better, according to AIC. 
+
+# To check the coefficients of the same model, but with other factor levels as reference, use the following and change
+# the factor level in "ref="
+summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+            method = "ML"))
+
+
+##--- 5.4.2 Chao1_blacks    ---####
+##-----------------------------####
+
+summary(gls.b_ML_clust.std <- gls(log_chao.blacks.std ~  clusterCut + Divers + north.mean,
+                              data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
+
+#stepAIC(gls.b_ML_clust.std)        # log_chao.blacks ~ clusterCut + Divers
+d.black.std <- dredge(gls.b_ML_clust.std)
+d.black2.std <- subset(d.black.std, delta<2)
+model.sel(d.black2.std)
+output_black.std <- model.sel(d.black2.std)
+# Here we have more than 1 candidate model - we thus need model averaging!
+gls_avg_blacks.std <- model.avg(output_black.std, fit=TRUE)   
+
+gls_avg_blacks.std$coefficients
+summary(gls_avg_blacks.std)   
+
+summary(gls_avg_blacks.std)$coefmat.full  # When retrieving the results, I have chosen to use the zero-method (full model) rather than the conditional
+                                          # as this is better when we are interested in the importance of variables (Grueber et al. 2011)
+summary(model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))),
+                  subset=delta<2, fit=TRUE))$coefmat.full
+
+
+# This is somewhat similar to the optimal model for the non-spatial approach, minus the north.mean
+
+# Define the better model and compare AIC:
+#summary(gls_clust_blacks.std <- gls(log_chao.blacks.std ~  clusterCut + Divers,
+#                                data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#                                method = "ML"))
+
+#AIC(M2.std, gls_clust_blacks.std)
+
+
+# To check the coefficients of the same model, but with other factor levels as reference, use the following and change
+# the factor level in "ref="
+#summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+#            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#            method = "ML"))
+model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+
+
+##--- 5.4.3 Chao1_all    ---####
+##--------------------------####
+
+summary(gls.a_ML_clust.std <- gls(log_chao.all.std ~  clusterCut + Divers + north.mean,
+                              data=TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML"))
+
+#stepAIC(gls.a_ML_clust.std)        # log_chao.all ~ clusterCut + Divers
+d.all.std <- dredge(gls.a_ML_clust.std)
+d.all2.std <- subset(d.all.std, delta<2)
+model.sel(d.all2.std)
+output_all.std <- model.sel(d.all2.std)
+# Here we have more than 1 candidate model - we thus need model averaging!
+gls_avg_all.std <- model.avg(output_all.std, fit=TRUE)   
+
+gls_avg_all.std$coefficients
+summary(gls_avg_all.std)   
+
+summary(gls_avg_all.std)$coefmat.full  # When retrieving the results, I have chosen to use the zero-method (full model) rather than the conditional
+                                       # as this is better when we are interested in the importance of variables (Grueber et al. 2011)
+summary(model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))),
+                  subset=delta<2, fit=TRUE))$coefmat.full
+
+# Define the better model and compare AIC:
+#summary(gls_clust_all.std <- gls(log_chao.all.std ~  clusterCut + Divers,
+#                             data = TrdRast_clust_model@data, correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#                             method = "ML"))
+
+#AIC(M3.std, gls_clust_all.std)
+
+# To check the coefficients of the same model, but with other factor levels as reference, use the following and change
+# the factor level in "ref="
+#summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+#            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]),
+#            method = "ML"))
+model.avg(model.sel(dredge(update(gls.a_ML_clust, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+
+
+##--- 5.4.3 Model validation ---####
+##------------------------------####
+summary(gls_clust_reds.std)
+summary(gls_clust_blacks.std)
+summary(gls_clust_all.std)
+
+# Pseudo-R^2 calculated as correlation between observed and predicted values - this is what was done in
+# in the Ballesteros-Meija paper - I am uncertain whether is is desirable for me.
+# However, it seems to be my best option for a Goodness of Fit-test - I can compare them to the R^2 of the
+# non-spatial models (calculated as (1-(Residual deviance/Null deviance))).
+# Get the needed data:
+pseudo <- merge(TrdRast_clust_model@data[,c(1,22:27)], data_predict_clust@data[,c(1,7:9, 14:16)], by="Pixelnr")
+
+# Make the calculations (and potentially compare):
+cor(pseudo$log_chao.reds.std, pseudo$predict_reds.std)
+1-(186.01/290.00)    # summary(M1.std)
+
+cor(pseudo$log_chao.blacks.std, pseudo$predict_blacks.std)
+1-(218.9/290.0)   # summary(M2.std)
+
+cor(pseudo$log_chao.all.std, pseudo$predict_all.std)
+1-(250.54/290.0)   # summary(M3.std)
+
+
+# Plot residuals vs fitted values (gls.exp_clust_reds)
+F1_threat.std <- fitted(gls_clust_reds.std)
+E1_threat.std <- resid(gls_clust_reds.std, type = "pearson")      
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_threat.std, 
+     y = E1_threat.std,
+     xlab = "Fitted values - threat.",
+     ylab = "Pearson residuals - threat.",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_threat.std <- E1_threat.std
+Myxyplot(TrdRast_clust_model@data, MyVar_std2[-4], "Resid_threat.std")
+TrdRast_clust_model@data$Resid_threat.std <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_threat.std)
+
+
+# Plot residuals vs fitted values (gls.exp_clust_blacks)
+F1_alien.std <- fitted(gls_clust_blacks.std)
+E1_alien.std <- resid(gls_clust_blacks.std, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_alien.std, 
+     y = E1_alien.std,
+     xlab = "Fitted values - alien",
+     ylab = "Pearson residuals - alien",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_alien.std <- E1_alien.std
+Myxyplot(TrdRast_clust_model@data, MyVar_std2[-4], "Resid_alien.std")
+TrdRast_clust_model@data$Resid_alien.std <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_alien.std)
+
+# Plot residuals vs fitted values (gls.exp_clust_all)
+F1_all.std <- fitted(gls_clust_all.std)
+E1_all.std <- resid(gls_clust_all.std, type = "pearson")      # Remember, Pearson residuals are the same as standardized residuals -these are the best ones for detecting patterns (or lack of same) in the residuals
+par(mfrow = c(1,1), mar = c(5,5,2,2))
+plot(x = F1_all.std, 
+     y = E1_all.std,
+     xlab = "Fitted values - all",
+     ylab = "Pearson residuals - all",
+     cex.lab = 1.5)
+abline(h = 0, lty = 2)
+
+# Plot the residuals vs each covariate     
+TrdRast_clust_model@data$Resid_all.std <- E1_all.std
+Myxyplot(TrdRast_clust_model@data, MyVar_std2[-4], "Resid_all.std")
+TrdRast_clust_model@data$Resid_all.std <- NULL
+
+# Histogram of the residuals to check is they are Gaussian:
+par(mfrow=c(1,1))
+par(mar=c(5.1,4.1,4.1,2.1))
+hist(E1_all.std)
+
+# QQ-plots
+qqnorm(gls_clust_reds.std, abline=c(0,1))
+qqnorm(gls_clust_blacks.std, abline=c(0,1))
+qqnorm(gls_clust_all.std, abline=c(0,1))
+
+
+##--- 5.4.3.1 Plots of model coefficients ---####
+##-------------------------------------------####
+# Plot of Cluster coefficients and their std.error - the coefficients and their std.errors are picked up by
+# refitting the models with a new reference level. The coefficient is the same across all models (baseline+correction),
+# the std.errors are from the model in which that factor level is baseline
+par(mfrow=c(1,1))
+par(mar=c(10,4.1,0.5,2.1))
+plot(1, type="n", xlab="", ylab="Model coefficient, scaled response", xlim=c(1, 11), ylim=c(-3.5, 2), xaxt="n")
+axis(1, at=c(1:11), labels=c("(1) Coastal", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
+                             "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
+                             "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
+                             "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
+                             "(12) Freshwater", "Habitat \nheterogeneity"), las=2)
+abline(h=0, lty=2, col="gray")
+legend("top", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
+
+
+### Threatened ####
+# Cluster 1
+segments( 0.9, coef(summary(gls_clust_reds.std))[1,1] - coef(summary(gls_clust_reds.std))[1,2],  
+          x1=0.9, y1=coef(summary(gls_clust_reds.std))[1,1] + coef(summary(gls_clust_reds.std))[1,2], col="red")
+points(0.9, (coef(summary(gls_clust_reds.std))[1,1]), pch=20, col="red")
+# Cluster 2
+segments( 1.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=1.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(1.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+# Cluster 3
+segments( 2.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=2.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(2.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 4
+segments( 3.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=3.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(3.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 5
+segments( 4.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=4.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(4.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 6
+segments( 5.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=5.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(5.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 7
+segments( 6.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=6.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(6.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 8
+segments( 7.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=7.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(7.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 11
+segments( 8.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=8.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(8.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 12
+segments( 9.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=9.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(9.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+segments(10.9, coef(summary(gls_clust_reds.std))[11,1] - coef(summary(gls_clust_reds.std))[11,2],  # Habitat diversity
+         x1=10.9, y1=coef(summary(gls_clust_reds.std))[11,1] + coef(summary(gls_clust_reds.std))[11,2], col="red")
+points(10.9, (coef(summary(gls_clust_reds.std))[11,1]), pch=20, col="red")
+
+
+## Alien ####
+# Cluster 1
+segments( 1.1, coef(summary(gls_clust_blacks.std))[1,1] - coef(summary(gls_clust_blacks.std))[1,2],  
+          x1=1.1, y1=coef(summary(gls_clust_blacks.std))[1,1] + coef(summary(gls_clust_blacks.std))[1,2], col="black")
+points(1.1, (coef(summary(gls_clust_blacks.std))[1,1]), pch=20, col="black")
+
+# Cluster 2
+segments( 2.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=2.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(2.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+# Cluster 3
+segments( 3.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=3.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(3.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 4
+segments( 4.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=4.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(4.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 5
+segments( 5.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=5.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(5.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 6
+segments( 6.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=6.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(6.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 7
+segments( 7.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=7.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(7.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 8
+segments( 8.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=8.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(8.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 11
+segments( 9.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=9.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(9.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+
+# Cluster 12
+segments( 10.1, (coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                  correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                   coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                    correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=10.1, y1=(coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                        correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                         coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                          correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="black")
+points(10.1, coef(summary(gls(log_chao.blacks.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                              correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="black")
+# Habitat heterogeneity    
+segments( 11.1, coef(summary(gls_clust_blacks.std))[11,1] - coef(summary(gls_clust_blacks.std))[11,2],
+          x1=11.1, y1=coef(summary(gls_clust_blacks.std))[11,1] + coef(summary(gls_clust_blacks.std))[11,2])
+points(11.1, (coef(summary(gls_clust_blacks.std))[11,1]), pch=20)
+
+
+### AVG.model
+
+# Cluster 1
+segments( 1.1, summary(gls_avg_blacks.std)$coefmat.full[1,1] - summary(gls_avg_blacks.std)$coefmat.full[1,3],  
+          x1=1.1, y1=summary(gls_avg_blacks.std)$coefmat.full[1,1] + summary(gls_avg_blacks.std)$coefmat.full[1,3], col="black")
+points(1.1, (summary(gls_avg_blacks.std)$coefmat.full[1,1]), pch=20, col="black")
+
+# Cluster 2 
+{cl2_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+  segments( 2.1, (summary(cl2_blacks)$coefmat.full[1,1] - summary(cl2_blacks)$coefmat.full[1,3]),  
+            x1=2.1, y1=(summary(cl2_blacks)$coefmat.full[1,1] + summary(cl2_blacks)$coefmat.full[1,3]), col="black")
+  points(2.1, summary(cl2_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl2_blacks)}
+
+# Cluster 3
+{cl3_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3.1, (summary(cl3_blacks)$coefmat.full[1,1] - summary(cl3_blacks)$coefmat.full[1,3]),  
+            x1=3.1, y1=(summary(cl3_blacks)$coefmat.full[1,1] + summary(cl3_blacks)$coefmat.full[1,3]), col="black")
+  points(3.1, summary(cl3_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl3_blacks)}
+
+
+# Cluster 4
+{cl4_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4.1, (summary(cl4_blacks)$coefmat.full[1,1] - summary(cl4_blacks)$coefmat.full[1,3]),  
+            x1=4.1, y1=(summary(cl4_blacks)$coefmat.full[1,1] + summary(cl4_blacks)$coefmat.full[1,3]), col="black")
+  points(4.1, summary(cl4_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl4_blacks)}
+
+
+# Cluster 5
+{cl5_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5.1, (summary(cl5_blacks)$coefmat.full[1,1] - summary(cl5_blacks)$coefmat.full[1,3]),  
+            x1=5.1, y1=(summary(cl5_blacks)$coefmat.full[1,1] + summary(cl5_blacks)$coefmat.full[1,3]), col="black")
+  points(5.1, summary(cl5_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl5_blacks)}
+
+
+# Cluster 6
+{cl6_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6.1, (summary(cl6_blacks)$coefmat.full[1,1] - summary(cl6_blacks)$coefmat.full[1,3]),  
+            x1=6.1, y1=(summary(cl6_blacks)$coefmat.full[1,1] + summary(cl6_blacks)$coefmat.full[1,3]), col="black")
+  points(6.1, summary(cl6_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl6_blacks)}
+
+
+# Cluster 7
+{cl7_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7.1, (summary(cl7_blacks)$coefmat.full[1,1] - summary(cl7_blacks)$coefmat.full[1,3]),  
+            x1=7.1, y1=(summary(cl7_blacks)$coefmat.full[1,1] + summary(cl7_blacks)$coefmat.full[1,3]), col="black")
+  points(7.1, summary(cl7_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl7_blacks)}
+
+
+# Cluster 8
+{cl8_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8.1, (summary(cl8_blacks)$coefmat.full[1,1] - summary(cl8_blacks)$coefmat.full[1,3]),  
+            x1=8.1, y1=(summary(cl8_blacks)$coefmat.full[1,1] + summary(cl8_blacks)$coefmat.full[1,3]), col="black")
+  points(8.1, summary(cl8_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl8_blacks)}
+
+
+# Cluster 11
+{cl11_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9.1, (summary(cl11_blacks)$coefmat.full[1,1] - summary(cl11_blacks)$coefmat.full[1,3]),  
+            x1=9.1, y1=(summary(cl11_blacks)$coefmat.full[1,1] + summary(cl11_blacks)$coefmat.full[1,3]), col="black")
+  points(9.1, summary(cl11_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl11_blacks)}
+
+
+# Cluster 12
+{cl12_blacks <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10.1, (summary(cl12_blacks)$coefmat.full[1,1] - summary(cl12_blacks)$coefmat.full[1,3]),  
+            x1=10.1, y1=(summary(cl12_blacks)$coefmat.full[1,1] + summary(cl12_blacks)$coefmat.full[1,3]), col="black")
+  points(10.1, summary(cl12_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl12_blacks)}
+
+
+# Habitat heterogeneity    
+segments(11.1, summary(gls_avg_blacks.std)$coefmat.full[11,1] - summary(gls_avg_blacks.std)$coefmat.full[11,3],
+         x1=11.1, y1=summary(gls_avg_blacks.std)$coefmat.full[11,1] + summary(gls_avg_blacks.std)$coefmat.full[11,3]) 
+points(11.1, summary(gls_avg_blacks.std)$coefmat.full[11,1], pch=20)
+
+
+## All ####
+# Cluster 1
+segments( 1, coef(summary(gls_clust_all.std))[1,1] - coef(summary(gls_clust_all.std))[1,2],  
+          x1=1, y1=coef(summary(gls_clust_all.std))[1,1] + coef(summary(gls_clust_all.std))[1,2], col="blue")
+points(1, (coef(summary(gls_clust_all.std))[1,1]), pch=20, col="blue")
+
+# Cluster 2
+segments( 2, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=2, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(2, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+# Cluster 3
+segments( 3, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=3, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(3, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 4
+segments( 4, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=4, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(4, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 5
+segments( 5, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=5, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(5, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 6
+segments( 6, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=6, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(6, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 7
+segments( 7, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=7, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(7, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 8
+segments( 8, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=8, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(8, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 11
+segments( 9, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                               correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=9, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                     correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                      coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(9, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                           correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Cluster 12
+segments( 10, (coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                 coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                  correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=10, y1=(coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                      correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                       coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                        correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="blue")
+points(10, coef(summary(gls(log_chao.all.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                            correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="blue")
+
+# Hab. heterogenity    
+segments( 11, coef(summary(gls_clust_all.std))[11,1] - coef(summary(gls_clust_all.std))[11,2],  
+          x1=11, y1=coef(summary(gls_clust_all.std))[11,1] + coef(summary(gls_clust_all.std))[11,2], col="blue")
+points(11, (coef(summary(gls_clust_all.std))[11,1]), pch=20, col="blue")
+
+
+### AVG.model
+
+# Cluster 1
+segments( 1, summary(gls_avg_all.std)$coefmat.full[1,1] - summary(gls_avg_all.std)$coefmat.full[1,3],  
+          x1=1, y1=summary(gls_avg_all.std)$coefmat.full[1,1] + summary(gls_avg_all.std)$coefmat.full[1,3], col="blue")
+points(1, (summary(gls_avg_all.std)$coefmat.full[1,1]), pch=20, col="blue")
+
+# Cluster 2 
+{cl2_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+  segments( 2, (summary(cl2_all)$coefmat.full[1,1] - summary(cl2_all)$coefmat.full[1,3]),  
+            x1=2, y1=(summary(cl2_all)$coefmat.full[1,1] + summary(cl2_all)$coefmat.full[1,3]), col="blue")
+  points(2, summary(cl2_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl2_all)}
+
+# Cluster 3
+{cl3_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3, (summary(cl3_all)$coefmat.full[1,1] - summary(cl3_all)$coefmat.full[1,3]),  
+            x1=3, y1=(summary(cl3_all)$coefmat.full[1,1] + summary(cl3_all)$coefmat.full[1,3]), col="blue")
+  points(3, summary(cl3_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl3_all)}
+
+
+# Cluster 4
+{cl4_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4, (summary(cl4_all)$coefmat.full[1,1] - summary(cl4_all)$coefmat.full[1,3]),  
+            x1=4, y1=(summary(cl4_all)$coefmat.full[1,1] + summary(cl4_all)$coefmat.full[1,3]), col="blue")
+  points(4, summary(cl4_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl4_all)}
+
+
+# Cluster 5
+{cl5_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5, (summary(cl5_all)$coefmat.full[1,1] - summary(cl5_all)$coefmat.full[1,3]),  
+            x1=5, y1=(summary(cl5_all)$coefmat.full[1,1] + summary(cl5_all)$coefmat.full[1,3]), col="blue")
+  points(5, summary(cl5_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl5_all)}
+
+
+# Cluster 6
+{cl6_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6, (summary(cl6_all)$coefmat.full[1,1] - summary(cl6_all)$coefmat.full[1,3]),  
+            x1=6, y1=(summary(cl6_all)$coefmat.full[1,1] + summary(cl6_all)$coefmat.full[1,3]), col="blue")
+  points(6, summary(cl6_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl6_all)}
+
+
+# Cluster 7
+{cl7_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7, (summary(cl7_all)$coefmat.full[1,1] - summary(cl7_all)$coefmat.full[1,3]),  
+            x1=7, y1=(summary(cl7_all)$coefmat.full[1,1] + summary(cl7_all)$coefmat.full[1,3]), col="blue")
+  points(7, summary(cl7_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl7_all)}
+
+
+# Cluster 8
+{cl8_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8, (summary(cl8_all)$coefmat.full[1,1] - summary(cl8_all)$coefmat.full[1,3]),  
+            x1=8, y1=(summary(cl8_all)$coefmat.full[1,1] + summary(cl8_all)$coefmat.full[1,3]), col="blue")
+  points(8, summary(cl8_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl8_all)}
+
+
+# Cluster 11
+{cl11_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9, (summary(cl11_all)$coefmat.full[1,1] - summary(cl11_all)$coefmat.full[1,3]),  
+            x1=9, y1=(summary(cl11_all)$coefmat.full[1,1] + summary(cl11_all)$coefmat.full[1,3]), col="blue")
+  points(9, summary(cl11_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl11_all)}
+
+
+# Cluster 12
+{cl12_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10, (summary(cl12_all)$coefmat.full[1,1] - summary(cl12_all)$coefmat.full[1,3]),  
+            x1=10, y1=(summary(cl12_all)$coefmat.full[1,1] + summary(cl12_all)$coefmat.full[1,3]), col="blue")
+  points(10, summary(cl12_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl12_all)}
+
+
+# Habitat heterogeneity    
+segments(11, summary(gls_avg_all.std)$coefmat.full[2,1] - summary(gls_avg_all.std)$coefmat.full[2,3],
+         x1=11, y1=summary(gls_avg_all.std)$coefmat.full[2,1] + summary(gls_avg_all.std)$coefmat.full[2,3], col="blue") 
+points(11, summary(gls_avg_all.std)$coefmat.full[2,1], pch=20, col="blue")
+
+legend("topright", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
+
+
+##-------####
+
+##--- 5.5 Making predictions from models  ---####
+##-------------------------------------------####
+### Make the predictions for threatened, alien and all species:
+data_predict_clust$predict_reds.std <- predict(gls_clust_reds.std, newdata=data_predict_clust)
+data_predict_clust$predict_blacks.std <- predict(gls_clust_blacks.std, newdata=data_predict_clust)
+data_predict_clust$predict_all.std <- predict(gls_clust_all.std, newdata=data_predict_clust)
+
+range(data_predict_clust$predict_reds.std)        
+range(data_predict_clust$predict_blacks.std)
+range(data_predict_clust$predict_all.std)
+
+# Avg. models
+data_predict_clust$predict_reds.std.avg <- predict(gls_avg_reds.std, newdata=data_predict_clust, full=TRUE)
+data_predict_clust$predict_blacks.std.avg <- predict(gls_avg_blacks.std, newdata=data_predict_clust, full=TRUE)
+data_predict_clust$predict_all.std.avg <- predict(gls_avg_all.std, newdata=data_predict_clust, full=TRUE)
+
+range(data_predict_clust$predict_reds.std.avg)        
+range(data_predict_clust$predict_blacks.std.avg)
+range(data_predict_clust$predict_all.std.avg)
+
+
+# Since we now have standardized number, it doesn't really make sense to try and back-transform the numbers anymore
+
+##--- 5.5.3 BETTER MAPS ---####
+##-------------------------####
+
+layout(rbind(c(1,2,3,4), c(5,6,7,8), c(9,10,11,12)), widths=c(5,1,5,1))
+
+# All species:
+palette(col.all(3655/4 +1))  
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "ESR of all species \nin 500m x 500m cell")
+plot(TrdRast_clust_model[, "S.chao1_2013"],
+     col=TrdRast_clust_model@data$S.chao1_2013,
+     border=TrdRast_clust_model@data$S.chao1_2013,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=0:max(TrdRast_clust_model@data$S.chao1_2013),
+      z=t(0:max(TrdRast_clust_model@data$S.chao1_2013)),
+      col=palette(col.all(3655/4 +1)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels = c(4, 500, 1000, 1500, 2000, 2500, 3000, 3500),
+     at=c(4, 500, 1000, 1500, 2000, 2500, 3000, 3500))
+
+palette(col.all(137))   # max(data_predict_clust@data$predict_all.std.avg - min(data_predict_clust@data$predict_all.std.avg)) *100
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of all \nspecies in 500m x 500m cell")
+plot(data_predict_clust,
+     col= (data_predict_clust@data$predict_all.std.avg - min(data_predict_clust@data$predict_all.std.avg))*100 ,
+     border=(data_predict_clust@data$predict_all.std.avg - min(data_predict_clust@data$predict_all.std.avg))*100 ,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=( (min(data_predict_clust@data$predict_all.std.avg)*100) : (max(data_predict_clust@data$predict_all.std.avg)*100) ),
+      z=t( (min(data_predict_clust@data$predict_all.std.avg)*100) : (max(data_predict_clust@data$predict_all.std.avg)*100) ),
+      col=palette(col.all(137)), axes=FALSE, main="Standardized. \nlog(chao + 1)", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels=c("-1.5", "-1", "-0.5", "0", "0.5"),
+     at=c(-150,-100, -50,0,50 ))
+
+# Threatened species:
+palette(col.reds(37+1))
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "ESR of threatened species \n in 500m x 500m cell")
+plot(TrdRast_clust_model[, "S.chao1_reds_2013"],
+     col=TrdRast_clust_model@data$S.chao1_reds_2013,
+     border=TrdRast_clust_model@data$S.chao1_reds_2013,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=0:37,z=t(0:37), col=palette(col.reds(37+1)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+
+
+palette(col.reds(312))    # max(data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg))) *100
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of threatened \nspecies in 500m x 500m cell")
+plot(data_predict_clust,
+     col= (data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+     border=(data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=min((data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100) : max((data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100),
+      z=t(min((data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100) : max((data_predict_clust@data$predict_reds.std.avg + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100)),
+      col=palette(col.reds(312)), axes=FALSE, main="Standardized \nlog(chao + 1)", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels=c("-1.5", "-1", "-0.5", "0", "0.5", "1", "1.5"),
+     at=c((-1.5 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (-1 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (-0.5 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (0 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (0.5 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (1 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100,
+          (1.5 + abs(min(data_predict_clust@data$predict_reds.std.avg)))*100))
+
+# Alien species:
+palette(col.blacks(66+1))   
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "ESR of alien species \nin 500m x 500m cell")
+plot(TrdRast_clust_model[, "S.chao1_blacks_2013"],
+     col=TrdRast_clust_model@data$S.chao1_blacks_2013,
+     border=TrdRast_clust_model@data$S.chao1_blacks_2013,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=0:66,z=t(0:66), col=palette(col.blacks(66+1)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0))
+
+palette(col.blacks(141))   # max(data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg))) *100
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell")
+plot(data_predict_clust,
+     col= (data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+     border=(data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2)
+par(mar=c(0.5,0.5,6,4))
+image(y=min((data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100) : max((data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100),
+      z=t(min((data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100) : max((data_predict_clust@data$predict_blacks.std.avg + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100)),
+      col=palette(col.reds(141)), axes=FALSE, main="Standardized \nlog(chao + 1)", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels=c("-1.5", "-1", "-0.5", "0", "0.5", "1"),
+     at=c((-1.5 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+          (-1 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+          (-0.5 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+          (0 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+          (0.5 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100,
+          (1 + abs(min(data_predict_clust@data$predict_blacks.std.avg)))*100))
+
+
+##--- 6. COMPARISON OF RELATIVE IMPORTANCE ---####
+##---------------------------------------------####
+# I have yet to find a way to calculate this for a gls
+
+
+layout(matrix(c(1,2), nrow=1, ncol=2), widths=c(5,1))
+
+palette(col.all(29089/100))  
+par(mar=c(0.5,0.5,6,0.5))
+plot(TrdRast_AR5[, "S.chao1_2013"], main="# of records",
+     col=TrdRast_AR5@data$Ntotal/100,
+     border=TrdRast_AR5@data$Ntotal/100,
+     cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=0:max(TrdRast_AR5@data$Ntotal[!is.na(TrdRast_AR5@data$Ntotal)]/100),
+      z=t(0:max(TrdRast_AR5@data$Ntotal[!is.na(TrdRast_AR5@data$Ntotal)]/100)),
+      col=palette(col.all(29089/100)), axes=FALSE, main="# \nrecords", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,.5,0),
+     labels = c(5000, 10000, 15000, 20000, 25000),
+     at=c(50, 100, 150, 200, 250))
+
+
+
+##--- 7. FIGURES FOR POSTER AND PUBLICATION ---####
+##--- 7.1 Prediction maps                   ---####
+##---------------------------------------------####
+library(RColorBrewer)
+col.reds <- colorRampPalette(c("white","#FF0000"))
+col.blacks <- colorRampPalette(c("white","black"))
+col.all <- colorRampPalette(c("white", "blue"))
+
+# All species:
+pdf("Prediction_all.pdf", height = 16/2.54, width = 23.5/2.54)  # Create the pdf 
+palette(col.all(144))  # max(data_predict_clust@data$predict_all_number) 
+#layout(matrix(c(1,2), nrow=1), widths = c(6,1))
+par(mfrow=c(1,1))
+par(mar=c(0.5,0.5,0.5,0.5))                 # Margins
+par(ps = 32, cex = 1, cex.main = 1)         # Font sizes
+DivMap(AR5, Trondheim, TrdRast_AR5, "")
+plot(data_predict_clust,
+     col= data_predict_clust@data$predict_all_number,
+     border=data_predict_clust@data$predict_all_number,
+     add=T)
+plot(Trondheim, add=TRUE, lty=2) 
+dev.off()
+
+pdf("Prediction_all_scale.pdf", height = 16/2.54, width = 3/2.54)  # Create the pdf 
+par(mar=c(6,3,7,3))
+par(ps = 24, cex = 0.75, cex.main = 1)
+image(y=(0:(max(data_predict_clust@data$predict_all_number))),
+      z=t(0:(max(data_predict_clust@data$predict_all_number))),
+      col=palette(col.all(144)), axes=FALSE, main="# \nspecies", cex.main=1)
+axis(4,mgp=c(0,1,0), cex=0.75)
+dev.off()
+
+
+# Threatened species:
+pdf("Prediction_threat.pdf", height = 16/2.54, width = 23.5/2.54)  # Create the pdf 
+palette(col.reds(159))   # max(data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10 
+par(mar=c(0.5,0.5,0.5,0.5))
+par(ps = 32, cex = 1, cex.main = 1)         # Font sizes
+DivMap(AR5, Trondheim, TrdRast_AR5, "")
+plot(data_predict_clust,
+     col= (data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10,
+     border=(data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10,
+     add=T)
+plot(Trondheim, add=TRUE, lty=2) 
+dev.off()
+
+pdf("Prediction_threat_scale.pdf", height = 16/2.54, width = 3/2.54)  # Create the pdf 
+par(mar=c(6,3,7,3))
+par(ps = 24, cex = 0.75, cex.main = 1)
+image(y=min((data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10) : max((data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10),
+      z=t(min((data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10) : max((data_predict_clust@data$predict_reds_number + abs(min(data_predict_clust@data$predict_reds_number)))*10)),
+      col=palette(col.reds(159)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4,cex.axis=0.8,mgp=c(0,1,0),
+     labels=c("0", "2", "5", "10", "15"),
+     at=c(0, 20, 50, 100, 150), cex=0.75)
+dev.off()
+
+# Alien species:
+palette(col.blacks(35))   # max(data_predict_clust@data$predict_blacks_number + abs(min(data_predict_clust@data$predict_blacks_number))) *100
+par(mar=c(0.5,0.5,6,0.5))
+DivMap(AR5, Trondheim, TrdRast_AR5, "Modelled richness of alien \nspecies in 500m x 500m cell")
+plot(data_predict_clust,
+     col=(data_predict_clust@data$predict_blacks_number + abs(min(data_predict_clust@data$predict_blacks_number)))*10,
+     border=(data_predict_clust@data$predict_blacks_number + abs(min(data_predict_clust@data$predict_blacks_number)))*10,
+     add=T, cex.main=0.75)
+plot(Trondheim, add=TRUE, lty=2) 
+par(mar=c(0.5,0.5,6,4))
+image(y=((min(data_predict_clust@data$predict_blacks_number)+abs(min(data_predict_clust@data$predict_blacks_number)))*10):((max(data_predict_clust@data$predict_blacks_number)+abs(min(data_predict_clust@data$predict_blacks_number)))*10),
+      z=t(((min(data_predict_clust@data$predict_blacks_number))*10):((max(data_predict_clust@data$predict_blacks_number))*10)),
+      col=palette(col.blacks(35)), axes=FALSE, main="# \nspecies", cex.main=.75)
+axis(4, cex.axis=0.8, mgp=c(0,.5,0),
+     labels=c("0", "0.5", "1", "1.5", "2", "2.5", "3"),
+     at=c(0,5,10,15,20,25,30))
+
+
+##--- 7.2 Model coefficients (scaled) ---####
+##---------------------------------------####
+
+par(mfrow=c(1,1))
+par(mar=c(9,4.1,0.5,2.1))
+plot(1, type="n", xlab="", ylab="Model coefficient, scaled response", xlim=c(1, 11), ylim=c(-3, 2), xaxt="n")
+axis(1, at=c(1:11), labels=FALSE)
+text(x=c(1:11), y=par()$usr[3]-0.05*(par()$usr[4]-par()$usr[3]),
+     labels=c("(1) Coastal \n(Intercept)", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
+              "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
+              "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
+              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
+              "(12) Freshwater", "Habitat \nheterogeneity"),
+     srt=55, adj=1, xpd=TRUE)
+#legend("top", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
+legend("top", legend=c("Threatened", "Alien", "All", "Mean", "Standard error"),
+       lty=c(1,1,1,NA,1,3), pch=c(NA,NA,NA,20,NA),
+       col=c("red", "black", "blue","gray40","gray40"), cex=0.75, ncol=2)
+
+## All ####
+{# Cluster 1
+segments( 1, summary(gls_avg_all.std)$coefmat.full[1,1] - summary(gls_avg_all.std)$coefmat.full[1,3],  
+          x1=1, y1=summary(gls_avg_all.std)$coefmat.full[1,1] + summary(gls_avg_all.std)$coefmat.full[1,3], col="blue")
+points(1, (summary(gls_avg_all.std)$coefmat.full[1,1]), pch=20, col="blue")
+
+# Cluster 2 
+{cl2_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+  segments( 2, (summary(cl2_all)$coefmat.full[1,1] - summary(cl2_all)$coefmat.full[1,3]),  
+            x1=2, y1=(summary(cl2_all)$coefmat.full[1,1] + summary(cl2_all)$coefmat.full[1,3]), col="blue")
+  points(2, summary(cl2_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl2_all)}
+
+# Cluster 3
+{cl3_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3, (summary(cl3_all)$coefmat.full[1,1] - summary(cl3_all)$coefmat.full[1,3]),  
+            x1=3, y1=(summary(cl3_all)$coefmat.full[1,1] + summary(cl3_all)$coefmat.full[1,3]), col="blue")
+  points(3, summary(cl3_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl3_all)}
+
+
+# Cluster 4
+{cl4_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4, (summary(cl4_all)$coefmat.full[1,1] - summary(cl4_all)$coefmat.full[1,3]),  
+            x1=4, y1=(summary(cl4_all)$coefmat.full[1,1] + summary(cl4_all)$coefmat.full[1,3]), col="blue")
+  points(4, summary(cl4_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl4_all)}
+
+
+# Cluster 5
+{cl5_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5, (summary(cl5_all)$coefmat.full[1,1] - summary(cl5_all)$coefmat.full[1,3]),  
+            x1=5, y1=(summary(cl5_all)$coefmat.full[1,1] + summary(cl5_all)$coefmat.full[1,3]), col="blue")
+  points(5, summary(cl5_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl5_all)}
+
+
+# Cluster 6
+{cl6_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6, (summary(cl6_all)$coefmat.full[1,1] - summary(cl6_all)$coefmat.full[1,3]),  
+            x1=6, y1=(summary(cl6_all)$coefmat.full[1,1] + summary(cl6_all)$coefmat.full[1,3]), col="blue")
+  points(6, summary(cl6_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl6_all)}
+
+
+# Cluster 7
+{cl7_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7, (summary(cl7_all)$coefmat.full[1,1] - summary(cl7_all)$coefmat.full[1,3]),  
+            x1=7, y1=(summary(cl7_all)$coefmat.full[1,1] + summary(cl7_all)$coefmat.full[1,3]), col="blue")
+  points(7, summary(cl7_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl7_all)}
+
+
+# Cluster 8
+{cl8_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8, (summary(cl8_all)$coefmat.full[1,1] - summary(cl8_all)$coefmat.full[1,3]),  
+            x1=8, y1=(summary(cl8_all)$coefmat.full[1,1] + summary(cl8_all)$coefmat.full[1,3]), col="blue")
+  points(8, summary(cl8_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl8_all)}
+
+
+# Cluster 11
+{cl11_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9, (summary(cl11_all)$coefmat.full[1,1] - summary(cl11_all)$coefmat.full[1,3]),  
+            x1=9, y1=(summary(cl11_all)$coefmat.full[1,1] + summary(cl11_all)$coefmat.full[1,3]), col="blue")
+  points(9, summary(cl11_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl11_all)}
+
+
+# Cluster 12
+{cl12_all <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10, (summary(cl12_all)$coefmat.full[1,1] - summary(cl12_all)$coefmat.full[1,3]),  
+            x1=10, y1=(summary(cl12_all)$coefmat.full[1,1] + summary(cl12_all)$coefmat.full[1,3]), col="blue")
+  points(10, summary(cl12_all)$coefmat.full[1,1], pch=20, col="blue")
+  rm(cl12_all)}
+
+
+# Habitat heterogeneity    
+segments(11, summary(gls_avg_all.std)$coefmat.full[2,1] - summary(gls_avg_all.std)$coefmat.full[2,3],
+         x1=11, y1=summary(gls_avg_all.std)$coefmat.full[2,1] + summary(gls_avg_all.std)$coefmat.full[2,3], col="blue") 
+points(11, summary(gls_avg_all.std)$coefmat.full[2,1], pch=20, col="blue")}
+### Threatened ####
+{# Cluster 1
+segments( 0.9, coef(summary(gls_clust_reds.std))[1,1] - coef(summary(gls_clust_reds.std))[1,2],  
+          x1=0.9, y1=coef(summary(gls_clust_reds.std))[1,1] + coef(summary(gls_clust_reds.std))[1,2], col="red")
+points(0.9, (coef(summary(gls_clust_reds.std))[1,1]), pch=20, col="red")
+# Cluster 2
+segments( 1.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=1.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(1.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+# Cluster 3
+segments( 2.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=2.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(2.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="3") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 4
+segments( 3.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=3.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(3.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="4") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 5
+segments( 4.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=4.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(4.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="5") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 6
+segments( 5.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=5.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(5.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="6") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 7
+segments( 6.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=6.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(6.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="7") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 8
+segments( 7.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=7.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(7.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="8") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 11
+segments( 8.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=8.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(8.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="11") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Cluster 12
+segments( 9.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                 correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
+                  coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                   correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]),  
+          x1=9.9, y1=(coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                       correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] +
+                        coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                                         correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,2]), col="red")
+points(9.9, coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="12") + Divers, data = TrdRast_clust_model@data,
+                             correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=20, col="red")
+
+# Habitat diversity
+segments(10.9, coef(summary(gls_clust_reds.std))[11,1] - coef(summary(gls_clust_reds.std))[11,2],  
+         x1=10.9, y1=coef(summary(gls_clust_reds.std))[11,1] + coef(summary(gls_clust_reds.std))[11,2], col="red")
+points(10.9, (coef(summary(gls_clust_reds.std))[11,1]), pch=20, col="red")}
+## Alien ####
+{# Cluster 1
+segments( 1.1, summary(gls_avg_blacks.std)$coefmat.full[1,1] - summary(gls_avg_blacks.std)$coefmat.full[1,3],  
+          x1=1.1, y1=summary(gls_avg_blacks.std)$coefmat.full[1,1] + summary(gls_avg_blacks.std)$coefmat.full[1,3], col="black")
+points(1.1, (summary(gls_avg_blacks.std)$coefmat.full[1,1]), pch=20, col="black")
+
+# Cluster 2 
+{cl2_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="2")))), subset=delta<2, fit=TRUE)
+  segments( 2.1, (summary(cl2_blacks)$coefmat.full[1,1] - summary(cl2_blacks)$coefmat.full[1,3]),  
+            x1=2.1, y1=(summary(cl2_blacks)$coefmat.full[1,1] + summary(cl2_blacks)$coefmat.full[1,3]), col="black")
+  points(2.1, summary(cl2_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl2_blacks)}
+
+# Cluster 3
+{cl3_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="3")))), subset=delta<2, fit=TRUE)
+  segments( 3.1, (summary(cl3_blacks)$coefmat.full[1,1] - summary(cl3_blacks)$coefmat.full[1,3]),  
+            x1=3.1, y1=(summary(cl3_blacks)$coefmat.full[1,1] + summary(cl3_blacks)$coefmat.full[1,3]), col="black")
+  points(3.1, summary(cl3_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl3_blacks)}
+
+
+# Cluster 4
+{cl4_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="4")))), subset=delta<2, fit=TRUE)
+  segments( 4.1, (summary(cl4_blacks)$coefmat.full[1,1] - summary(cl4_blacks)$coefmat.full[1,3]),  
+            x1=4.1, y1=(summary(cl4_blacks)$coefmat.full[1,1] + summary(cl4_blacks)$coefmat.full[1,3]), col="black")
+  points(4.1, summary(cl4_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl4_blacks)}
+
+
+# Cluster 5
+{cl5_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="5")))), subset=delta<2, fit=TRUE)
+  segments( 5.1, (summary(cl5_blacks)$coefmat.full[1,1] - summary(cl5_blacks)$coefmat.full[1,3]),  
+            x1=5.1, y1=(summary(cl5_blacks)$coefmat.full[1,1] + summary(cl5_blacks)$coefmat.full[1,3]), col="black")
+  points(5.1, summary(cl5_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl5_blacks)}
+
+
+# Cluster 6
+{cl6_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="6")))), subset=delta<2, fit=TRUE)
+  segments( 6.1, (summary(cl6_blacks)$coefmat.full[1,1] - summary(cl6_blacks)$coefmat.full[1,3]),  
+            x1=6.1, y1=(summary(cl6_blacks)$coefmat.full[1,1] + summary(cl6_blacks)$coefmat.full[1,3]), col="black")
+  points(6.1, summary(cl6_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl6_blacks)}
+
+
+# Cluster 7
+{cl7_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="7")))), subset=delta<2, fit=TRUE)
+  segments( 7.1, (summary(cl7_blacks)$coefmat.full[1,1] - summary(cl7_blacks)$coefmat.full[1,3]),  
+            x1=7.1, y1=(summary(cl7_blacks)$coefmat.full[1,1] + summary(cl7_blacks)$coefmat.full[1,3]), col="black")
+  points(7.1, summary(cl7_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl7_blacks)}
+
+
+# Cluster 8
+{cl8_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="8")))), subset=delta<2, fit=TRUE)
+  segments( 8.1, (summary(cl8_blacks)$coefmat.full[1,1] - summary(cl8_blacks)$coefmat.full[1,3]),  
+            x1=8.1, y1=(summary(cl8_blacks)$coefmat.full[1,1] + summary(cl8_blacks)$coefmat.full[1,3]), col="black")
+  points(8.1, summary(cl8_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl8_blacks)}
+
+
+# Cluster 11
+{cl11_blacks <- model.avg(model.sel(dredge(update(gls.b_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="11")))), subset=delta<2, fit=TRUE)
+  segments( 9.1, (summary(cl11_blacks)$coefmat.full[1,1] - summary(cl11_blacks)$coefmat.full[1,3]),  
+            x1=9.1, y1=(summary(cl11_blacks)$coefmat.full[1,1] + summary(cl11_blacks)$coefmat.full[1,3]), col="black")
+  points(9.1, summary(cl11_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl11_blacks)}
+
+
+# Cluster 12
+{cl12_blacks <- model.avg(model.sel(dredge(update(gls.a_ML_clust.std, ~ . - clusterCut + relevel(clusterCut, ref="12")))), subset=delta<2, fit=TRUE)
+  segments( 10.1, (summary(cl12_blacks)$coefmat.full[1,1] - summary(cl12_blacks)$coefmat.full[1,3]),  
+            x1=10.1, y1=(summary(cl12_blacks)$coefmat.full[1,1] + summary(cl12_blacks)$coefmat.full[1,3]), col="black")
+  points(10.1, summary(cl12_blacks)$coefmat.full[1,1], pch=20, col="black")
+  rm(cl12_blacks)}
+
+
+# Habitat heterogeneity    
+segments(11.1, summary(gls_avg_blacks.std)$coefmat.full[11,1] - summary(gls_avg_blacks.std)$coefmat.full[11,3],
+         x1=11.1, y1=summary(gls_avg_blacks.std)$coefmat.full[11,1] + summary(gls_avg_blacks.std)$coefmat.full[11,3]) 
+points(11.1, summary(gls_avg_blacks.std)$coefmat.full[11,1], pch=20)
+}
+##-------####
+
+
+
