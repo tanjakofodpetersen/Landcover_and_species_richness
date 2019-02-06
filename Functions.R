@@ -182,6 +182,42 @@ DivMap <- function(basemap, mun.border, griddata, title)
        col=rgb(190, 190, 190, alpha = 150, maxColorValue = 255), border=NA, add=TRUE)  # Cells within the grid  
 }
 
+# If we do not need the distinction between land and ocean:
+DivMap_2 <- function(basemap, mun.border, title)
+{
+  plot(basemap[basemap$artype==82,], border="lightblue1", lwd=1, lty=1, col="lightblue1", bg="forestgreen",
+       xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
+       ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]), main=title)     # Colouring the marine parts of the municipality
+  plot(mun.border, add=TRUE, lty=2)                           # Municipality border
+}
+
+# If we do not want to colour the grid grey, but only indicate the land/water differentiation
+# Brown terrestrial areas, green background:
+DivMap_3 <- function(basemap, mun.border, title)
+{
+  par(bg="lightgreen")
+  plot(basemap, border="bisque3", lwd=1, lty=1, col="bisque3",
+       xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
+       ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]), main=title)
+  plot(basemap[basemap$artype==82,], border="lightblue1", lwd=1, lty=1, col="lightblue1", add=TRUE,
+       xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
+       ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]))     # Colouring the marine parts of the municipality
+  plot(mun.border, add=TRUE, lty=2)                           # Municipality border
+  
+}
+
+# White terrestrial areas, green background:
+DivMap_4 <- function(basemap, mun.border, title)
+{
+  plot(basemap, border="white", lwd=1, lty=1, col="white",
+       xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
+       ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]), main=title)
+  plot(basemap[basemap$artype==82,], border="lightblue1", lwd=1, lty=1, col="lightblue1", add=TRUE,
+       xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
+       ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]))     # Colouring the marine parts of the municipality
+  plot(mun.border, add=TRUE, lty=2)                           # Municipality border
+  
+}
 
 ##--- THINGS TO REMOVE FOR MORE SPACE IN WORKSPACE ---####
 ##----------------------------------------------------####

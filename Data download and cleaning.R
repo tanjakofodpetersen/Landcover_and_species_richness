@@ -2,7 +2,7 @@
 ##             GBIF DATA             ####
 #########################################
 
-## 1. DOWNLOAD GBIF DATA                ####
+## 1. DOWNLOAD GBIF DATA                 ####
 ## 1.1 LOAD PACKAGES AND ADD CREDENTIALS ####
 ##---------------------------------------####
 
@@ -250,7 +250,31 @@ GBIF.trd_2013 <- subset(GBIF.354_trd, year>=2013)
 # Remove some old calculations, pontetially?
 names(GBIF.trd_2013@data)
 
+## 2.6 Have a look at the distribution again ####
+##-------------------------------------------####
 
+#  basisOfRecord:
+par(mar=c(7,4.1,4.1,2))
+barplot(table(GBIF.trd_2013@data$basisOfRecord), las=2, cex.names=0.6)
+
+# institusionCode:
+par(mar=c(6,4.1,4.1,2))
+barplot(table(GBIF.trd_2013@data$institutionCode), las=2, cex.names=0.6)
+
+# Log barplots
+par(mar=c(7,4.1,4.1,2))
+barplot(table(GBIF.trd_2013@data$basisOfRecord),
+    las=2, log="y", cex.names=0.75)
+
+par(mar=c(6,4.1,4.1,2))
+barplot(table(GBIF.trd_2013@data$institutionCode),
+        las=2, log="y", cex.names=0.6)
+
+# Have a look at how the plant records are distributed amongs institutions:
+{x <- table(GBIF.trd_2013@data[GBIF.trd_2013$kingdom=="Plantae", "institutionCode"])
+x <- x[x>0]
+barplot(x, las=2, cex.names=0.6)
+rm(x)}
 
 
 #########################################
@@ -534,10 +558,10 @@ proj4string(reds_2013) <- CRS("+proj=utm +zone=32 +datum=WGS84 +units=m +vunits=
 proj4string(blacks_2013) <- CRS("+proj=utm +zone=32 +datum=WGS84 +units=m +vunits=m +no_defs +ellps=WGS84 +towgs84=0,0,0 ")
 
 # Have a look:
-plot(Trondheim, border="black")
-plot(GBIF.trd_2013, col="blue", pch=".", add=TRUE)
-plot(reds_2013, col="red", pch=".", add=TRUE)
-plot(blacks_2013, col="black", pch=".", add=TRUE)
+plot(Trondheim, border="black")  # or use: DivMap_3(AR5, Trondheim, "")
+plot(GBIF.trd_2013, col="blue", pch="*", add=TRUE)
+plot(reds_2013, col="red", pch=3, add=TRUE)
+plot(blacks_2013, col="black", pch=4, add=TRUE)
 
 
 
@@ -866,4 +890,30 @@ TrdRast_AR5@data <- merge(TrdRast_AR5@data, d_pivot_AR5, by="Pixelnr", all=TRUE)
 # Remove some of the unnecessary files:
 rm(df_AR5)
 rm(TrdBound)
+
+
+
+## Compare species list from the full dataset and the used dataset ####
+##-----------------------------------------------------------------####
+splist <- data.frame(full_list=c(levels(occurrence$fspecies)))
+splist$model_list <- NA
+
+for(i in 1:NROW(splist)){
+  splist[i,"model_list"] <- ifelse(splist[i,"full_list"] %in% levels(GBIF.trd_2013@data[,"species"]),
+                                   paste(splist[i,"full_list"]),
+                                   paste("NA"))
+}
+splist[splist$model_list=="NA","model_list"] <- NA
+
+
+# Find out how the lost species distributes:
+View(as.data.frame(sort(table(occurrence[occurrence$fspecies %in% splist[is.na(splist$model_list),"full_list"], "species"]),
+                        decreasing = TRUE)))
+# To have a better look at the "lost species":
+lost <- as.data.frame(c(sort(table(occurrence[occurrence$fspecies %in% splist[is.na(splist$model_list),"full_list"], "species"]), decreasing = TRUE)))
+lost <- tibble::rownames_to_column(lost, var = "species")
+
+# Distribution among phyla:
+sort(table(occurrence[occurrence$species %in% lost$species, "phylum"]), decreasing=TRUE)
+View(as.data.frame(occurrence[occurrence$species %in% lost[-1, "species"], c("kingdom", "phylum", "class", "species")]))  # Remove the ones with no species name
 
