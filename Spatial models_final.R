@@ -2290,7 +2290,7 @@ plot(1, type="n", xlab="", ylab="Model coefficient, scaled response", xlim=c(1, 
 axis(1, at=c(1:11), labels=c("(1) Coastal", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
                              "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
                              "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
-                             "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
+                             "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand cultivated land",
                              "(12) Freshwater", "Habitat \nheterogeneity"), las=2)
 abline(h=0, lty=2, col="gray")
 legend("top", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
@@ -3075,7 +3075,7 @@ text(x=c(1:11), y=par()$usr[3]-0.05*(par()$usr[4]-par()$usr[3]),
      labels=c("(1) Coastal", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
               "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
               "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
-              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
+              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand cultivated land",
               "(12) Freshwater", "Habitat \nheterogeneity"),
      srt=55, adj=1, xpd=TRUE)
 #legend("top", legend=c("Threatened", "Alien", "All"), lty=1, col=c("red", "black", "blue"), cex=0.75)
@@ -3372,12 +3372,14 @@ points(11.1, summary(gls_avg_blacks.std)$coefmat.full[11,1], pch=20)
 # For now, only do the scaled one - if I need to do the inscaled as well, redefine the margins
 
 # If a .png with fixed sizes are needed:
-png("coefficients_poster2.png", height = 20, width = 25.5, units = "cm",
+png("poster2.png", height = 20, width = 25.5, units = "cm",
     pointsize = 18, res=500)  # Create the .png, 
 
 ## Unscaled ####
-par(mar=c(0.5,4.1,0.5,2.1))
-plot(1, type="n", xlab="", ylab="Model coefficient, unscaled response", xlim=c(1, 11), ylim=c(-1.5, 4), xaxt="n")
+par(mar=c(0.5,5,0.5,0.5))
+par(mfrow=c(1,1))
+layout(matrix(c(1,2), ncol=1), heights = c(1, 2))
+plot(1, type="n", xlab="", ylab="Model coefficient, \nunscaled response", xlim=c(1, 11), ylim=c(-1.5, 4), xaxt="n")
 axis(1, at=c(1:11), labels=FALSE)
 abline(h=0, lty=2, col="gray60")
 text(x=11, y=3.5, labels=c("(a)"))
@@ -3465,9 +3467,9 @@ text(x=11, y=3.5, labels=c("(a)"))
 
 ### Threatened ####
 {# Cluster 1
-  segments( 0.9, coef(summary(gls_avg_reds))[1,1] - coef(summary(gls_clust_reds))[1,2],  
-            x1=0.9, y1=coef(summary(gls_clust_reds))[1,1] + coef(summary(gls_clust_reds))[1,2], col="red" )
-  points(0.9, (coef(summary(gls_clust_reds))[1,1]), pch=16, col="red")
+  segments( 0.9, coef(summary(gls_avg_reds))[1,1] - coef(summary(gls_avg_reds))[1,2],  
+            x1=0.9, y1=coef(summary(gls_avg_reds))[1,1] + coef(summary(gls_avg_reds))[1,2], col="red" )
+  points(0.9, (coef(summary(gls_avg_reds))[1,1]), pch=16, col="red")
   
   # Cluster 2
   segments( 1.9, (coef(summary(gls(log_chao.reds ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
@@ -3577,9 +3579,9 @@ text(x=11, y=3.5, labels=c("(a)"))
                                correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=16, col="red")
   
   # Habitat diversity
-  segments(10.9, coef(summary(gls_clust_reds))[11,1] - coef(summary(gls_clust_reds))[11,2],  
-           x1=10.9, y1=coef(summary(gls_clust_reds))[11,1] + coef(summary(gls_clust_reds))[11,2], col="red" )
-  points(10.9, (coef(summary(gls_clust_reds))[11,1]), pch=16, col="red")}
+  segments(10.9, coef(summary(gls_avg_reds))[11,1] - coef(summary(gls_avg_reds))[11,2],  
+           x1=10.9, y1=coef(summary(gls_avg_reds))[11,1] + coef(summary(gls_avg_reds))[11,2], col="red" )
+  points(10.9, (coef(summary(gls_avg_reds))[11,1]), pch=16, col="red")}
 
 ## Alien ####
 {# Cluster 1
@@ -3665,17 +3667,15 @@ text(x=11, y=3.5, labels=c("(a)"))
 }
 
 ## Scaled ####
-bg.col <- rgb(221, 231, 238, alpha = 255, maxColorValue = 255)
-
-par(mar=c(8,4,0.5,0.5))
-plot(1, type="n", xlab="", ylab="Model coefficient, scaled response",
+par(mar=c(8,5,0.5,0.5))
+plot(1, type="n", xlab="", ylab="Model coefficient, \nscaled response",
      xlim=c(1, 11), ylim=c(-3, 2), xaxt="n", bg=bg.col)
 axis(1, at=c(1:11), labels=FALSE)
 text(x=c(1:11), y=par()$usr[3]-0.05*(par()$usr[4]-par()$usr[3]),
      labels=c("(1) Coastal", "(2) Urban/\ndeveloped", "(3) Urb./veg./\nrip.",
               "(4) Cultivated", "(5) Conif. forest, \nlow prod.",
               "(6) Conif. forest, \nmedium prod.", "(7) Open marsh and \nconif. forest",
-              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand forest",
+              "(8) Conif. forest, \nhigh prod.", "(11) Open firm ground \nand cultivated land",
               "(12) Freshwater", "Habitat \nheterogeneity"),
      srt=55, adj=1, xpd=TRUE)
 text(x=11, y=1.75, labels=c("(b)"))
@@ -3764,9 +3764,9 @@ text(x=11, y=1.75, labels=c("(b)"))
 
 ### Threatened ####
 {# Cluster 1
-  segments( 0.9, coef(summary(gls_clust_reds.std))[1,1] - coef(summary(gls_clust_reds.std))[1,2],  
-            x1=0.9, y1=coef(summary(gls_clust_reds.std))[1,1] + coef(summary(gls_clust_reds.std))[1,2], col="red")
-  points(0.9, (coef(summary(gls_clust_reds.std))[1,1]), pch=16, col="red")
+  segments( 0.9, coef(summary(gls_avg_reds.std))[1,1] - coef(summary(gls_avg_reds.std))[1,2],  
+            x1=0.9, y1=coef(summary(gls_avg_reds.std))[1,1] + coef(summary(gls_avg_reds.std))[1,2], col="red")
+  points(0.9, (coef(summary(gls_avg_reds.std))[1,1]), pch=16, col="red")
   # Cluster 2
   segments( 1.9, (coef(summary(gls(log_chao.reds.std ~  relevel(clusterCut, ref="2") + Divers, data = TrdRast_clust_model@data,
                                    correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1] -
@@ -3875,9 +3875,9 @@ text(x=11, y=1.75, labels=c("(b)"))
                                correlation=corExp(form=~xy_clust[,1]+xy_clust[,2]), method = "ML")))[1,1], pch=16, col="red")
   
   # Habitat diversity
-  segments(10.9, coef(summary(gls_clust_reds.std))[11,1] - coef(summary(gls_clust_reds.std))[11,2],  
-           x1=10.9, y1=coef(summary(gls_clust_reds.std))[11,1] + coef(summary(gls_clust_reds.std))[11,2], col="red")
-  points(10.9, (coef(summary(gls_clust_reds.std))[11,1]), pch=16, col="red")}
+  segments(10.9, coef(summary(gls_avg_reds.std))[11,1] - coef(summary(gls_avg_reds.std))[11,2],  
+           x1=10.9, y1=coef(summary(gls_avg_reds.std))[11,1] + coef(summary(gls_avg_reds.std))[11,2], col="red")
+  points(10.9, (coef(summary(gls_avg_reds.std))[11,1]), pch=16, col="red")}
 
 ## Alien ####
 {# Cluster 1
@@ -3963,7 +3963,7 @@ text(x=11, y=1.75, labels=c("(b)"))
 }
 
 ## Legend ####
-legend("top", legend=c("Threatened species", "Alien species", "All species"),
+legend("bottomright", legend=c("Threatened species", "Alien species", "All species"),
        pch=c(16, 17, 15),
        col=c("red", "black", "blue"), cex=1)
 
@@ -4326,8 +4326,8 @@ MyData2$SeLo_blacks <- MyData2$log_chao.blacks - 1.96 * MyData2$se.log_chao.blac
 
 ## Plot observed data versus prediction (MyData) #####
 P.all <- ggplot(TrdRast_clust@data,aes(x=Divers, y=log_chao.all))
-P.all <- P.all + geom_ribbon(data=MyData@data,aes(ymin=SeUp, ymax=SeLo),fill="blue",colour="blue",alpha=.65,lwd=NA,show.legend=F)  # This is the same as an errorbar, just along the entire line rather than a single point
-P.all <- P.all +geom_line(data=MyData@data,#aes(ymin=SeUp, ymax=SeLo),
+P.all <- P.all + geom_ribbon(data=MyData2@data,aes(ymin=SeUp_all, ymax=SeLo_all),fill="blue",colour="blue",alpha=.65,lwd=NA,show.legend=F)  # This is the same as an errorbar, just along the entire line rather than a single point
+P.all <- P.all +geom_line(data=MyData2@data,#aes(ymin=SeUp, ymax=SeLo),
                           colour="blue",alpha=.9,lwd=2,show.legend=F)
 P.all <- P.all +geom_point(data=TrdRast_clust_model@data, stat="identity",colour="grey50",fill="grey50",size=2.5)   # 'identity' takes you back to the original dataset
 P.all <- P.all +facet_wrap(~clusterCut, scale="fixed")
@@ -4358,19 +4358,17 @@ P.all <- P.all +annotate(geom = 'segment', y = 0, yend = 0, color = 'black', x =
 P.all
 
 
-
-
 ## Plot observed data versus prediction (MyData2) #####
 # Take out the rows with unused clusters:
-Trd_data_ggplot <- subset(TrdRast_clust@data, !(clusterCut==0 | clusterCut==9 | clusterCut==10))
-Trd_data_ggplot$clusterCut <- as.factor(Trd_data_ggplot$clusterCut)
+Trd_data_ggplot_model <- subset(TrdRast_clust_model@data, !(clusterCut==0 | clusterCut==9 | clusterCut==10))
+Trd_data_ggplot_model$clusterCut <- as.factor(Trd_data_ggplot_model$clusterCut)
 
 # All
-{P.all <- ggplot(Trd_data_ggplot,aes(x=Divers, y=log_chao.all))
+{P.all <- ggplot(Trd_data_ggplot_model,aes(x=Divers, y=log_chao.all))
 P.all <- P.all + geom_ribbon(data=MyData2@data,aes(ymin=SeUp_all, ymax=SeLo_all),fill="blue",colour="blue",alpha=.65,lwd=NA,show.legend=F)  # This is the same as an errorbar, just along the entire line rather than a single point
 P.all <- P.all +geom_line(data=MyData2@data,#aes(ymin=SeUp, ymax=SeLo),
                           colour="blue",alpha=.9,lwd=2,show.legend=F)
-P.all <- P.all +geom_point(data=Trd_data_ggplot, stat="identity",colour="grey50",fill="grey50",size=2.5)   # 'identity' takes you back to the original dataset
+P.all <- P.all +geom_point(data=Trd_data_ggplot_model, stat="identity",colour="grey50",fill="grey50",size=2.5)   # 'identity' takes you back to the original dataset
 P.all <- P.all +facet_wrap(~clusterCut, scale="fixed")
 P.all <- P.all+scale_x_continuous(limits=c(0,1), breaks = c(0,0.25,0.5,0.75), labels = c(0,0.25,0.5,0.75), expand=c(0,0))
 P.all <-P.all + scale_y_continuous(expand=c(0,0))
@@ -4399,11 +4397,11 @@ P.all <- P.all +annotate(geom = 'segment', y = 0, yend = 0, color = 'black', x =
 P.all}
 
 # Threatened
-{P.reds <- ggplot(Trd_data_ggplot,aes(x=Divers, y=log_chao.reds))
+{P.reds <- ggplot(Trd_data_ggplot_model,aes(x=Divers, y=log_chao.reds))
   P.reds <- P.reds + geom_ribbon(data=MyData2@data,aes(ymin=SeUp_reds, ymax=SeLo_reds),fill="red",colour="red",alpha=.65,lwd=NA,show.legend=F)  # This is the same as an errorbar, just along the entire line rather than a single point
   P.reds <- P.reds +geom_line(data=MyData2@data,#aes(ymin=SeUp, ymax=SeLo),
                             colour="red",alpha=.9,lwd=2,show.legend=F)
-  P.reds <- P.reds +geom_point(data=Trd_data_ggplot, stat="identity",colour="grey50",fill="grey50",size=2.5)   # 'identity' takes you back to the original dataset
+  P.reds <- P.reds +geom_point(data=Trd_data_ggplot_model, stat="identity",colour="grey50",fill="grey50",size=2.5)   # 'identity' takes you back to the original dataset
   P.reds <- P.reds +facet_wrap(~clusterCut, scale="fixed")
   P.reds <- P.reds+scale_x_continuous(limits=c(0,1), breaks = c(0,0.25,0.5,0.75), labels = c(0,0.25,0.5,0.75), expand=c(0,0))
   P.reds <-P.reds + scale_y_continuous(expand=c(0,0))
@@ -4432,11 +4430,11 @@ P.all}
   P.reds}
 
 # Alien
-{P.blacks <- ggplot(Trd_data_ggplot,aes(x=Divers, y=log_chao.blacks))
+{P.blacks <- ggplot(Trd_data_ggplot_model,aes(x=Divers, y=log_chao.blacks))
   P.blacks <- P.blacks + geom_ribbon(data=MyData2@data,aes(ymin=SeUp_blacks, ymax=SeLo_blacks),fill="gray50",colour="gray50",alpha=.65,lwd=NA,show.legend=F)  # This is the same as an errorbar, just along the entire line rather than a single point
   P.blacks <- P.blacks +geom_line(data=MyData2@data,#aes(ymin=SeUp, ymax=SeLo),
                             colour="black",alpha=.9,lwd=2,show.legend=F)
-  P.blacks <- P.blacks +geom_point(data=Trd_data_ggplot, stat="identity",colour="grey20",fill="grey20",size=2.5)   # 'identity' takes you back to the original dataset
+  P.blacks <- P.blacks +geom_point(data=Trd_data_ggplot_model, stat="identity",colour="grey20",fill="grey20",size=2.5)   # 'identity' takes you back to the original dataset
   P.blacks <- P.blacks +facet_wrap(~clusterCut, scale="fixed")
   P.blacks <- P.blacks+scale_x_continuous(limits=c(0,1), breaks = c(0,0.25,0.5,0.75), labels = c(0,0.25,0.5,0.75), expand=c(0,0))
   P.blacks <-P.blacks + scale_y_continuous(expand=c(0,0))
@@ -4466,11 +4464,11 @@ P.all}
 
 ## Put it all in the same graph ####
 # Prepare the original data
-Trd_data_ggplot2 <- data.frame(Pixelnr=c(rep(Trd_data_ggplot$Pixelnr, 3)),
-                               clusterCut=c(rep(as.character(Trd_data_ggplot$clusterCut), 3)),
-                               Divers=c(rep(Trd_data_ggplot$Divers)),
-                               log.chao=c(Trd_data_ggplot$log_chao.all, Trd_data_ggplot$log_chao.reds, Trd_data_ggplot$log_chao.blacks),
-                               Group=factor(c(rep("All", 1490), rep("Threatened", 1490), rep("Alien", 1490)), levels=c("All", "Threatened", "Alien")))
+Trd_data_ggplot2 <- data.frame(Pixelnr=c(rep(Trd_data_ggplot_model$Pixelnr, 3)),
+                               clusterCut=c(rep(as.character(Trd_data_ggplot_model$clusterCut), 3)),
+                               Divers=c(rep(Trd_data_ggplot_model$Divers)),
+                               log.chao=c(Trd_data_ggplot_model$log_chao.all, Trd_data_ggplot_model$log_chao.reds, Trd_data_ggplot_model$log_chao.blacks),
+                               Group=factor(c(rep("All", 291), rep("Threatened", 291), rep("Alien", 291)), levels=c("All", "Threatened", "Alien")))
 Trd_data_ggplot2$clusterCut <- as.character(Trd_data_ggplot2$clusterCut)
 for(i in 1:NROW(Trd_data_ggplot2)){
   Trd_data_ggplot2[i,"clusterCut"] <- ifelse(Trd_data_ggplot2[i,"clusterCut"]==1, paste("Coastal"),

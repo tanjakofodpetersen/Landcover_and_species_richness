@@ -7,7 +7,7 @@
 ##---------------------------------------####
 
 # Load packages
-library(rgbif)
+library(rgbif)911
 library(stringr) # string manipulations (not needed, may also be done by base R)
 library(rio)     # data import (not needed, may also be done by base R)
 library(dplyr)   # for data-wrangling
@@ -228,7 +228,7 @@ par(mar=c(7,4.1,4.1,4.1))
 barplot(table(GBIF.354_trd@data$basisOfRecord), las=2, cex.names=0.6)
 
 # How does the data look when divided between institusionCode:
-par(mar=c(15,4.1,4.1,4.1))
+par(mar=c(7,4.1,4.1,4.1))
 barplot(table(GBIF.354_trd@data$institutionCode), las=2, cex.names=0.6)
 # As expected, NOF is the most productive member here
 # Problem: I cannot find all the institutions, as GBIF do not provide any kind of list with abbreviations,

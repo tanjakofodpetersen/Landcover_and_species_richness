@@ -45,9 +45,9 @@ AR5map <- function(adm.border, landcover, map.title)
 
 AR5legend <- function(x.placement, y.placement)
 {
-  legend(x=x.placement, y=y.placement, legend=c("Developed area", "Communications and traffic", "Fully cultivated land (2)",
-                                                "Superficially cultivated land (3)", "Home fields grazing land (15)",
-                                                "Forest (15)", "Open firm ground (5)", "Marsh (4)", "Snow/glacier",
+  legend(x=x.placement, y=y.placement, legend=c("Developed area", "Communications and traffic", "Fully cultivated land",
+                                                "Superficially cultivated land", "Home fields grazing land",
+                                                "Forest", "Open firm ground", "Marsh", "Snow/glacier",
                                                 "Freshwater", "Ocean", "Not registered"),
          fill=c("lightpink", "hotpink", "orange", "goldenrod", "khaki1",
                 "yellowgreen", "sandybrown", "cadetblue1", "cyan", "dodgerblue2", "dodgerblue3", "gray"),
@@ -75,9 +75,9 @@ AR5map.2012 <- function(adm.border, landcover, map.title)
 
 AR5legend.2012 <- function(x.placement, y.placement)
 {
-  legend(x=x.placement, y=y.placement, legend=c("Developed area", "Communications and traffic", "Fully cultivated land (2)",
-                                                "Superficially cultivated land (3)", "Home fields grazing land (15)",
-                                                "Forest (15)", "Open firm ground (5)", "Marsh (4)", "Snow/glacier",
+  legend(x=x.placement, y=y.placement, legend=c("Developed area", "Communications and traffic", "Fully cultivated land",
+                                                "Superficially cultivated land", "Home fields grazing land",
+                                                "Forest", "Open firm ground", "Marsh", "Snow/glacier",
                                                 "Water", "Not registered"),
          fill=c("lightpink", "hotpink", "orange", "goldenrod", "khaki1",
                 "yellowgreen", "sandybrown", "cadetblue1", "cyan", "dodgerblue2", "dodgerblue3", "gray"),
@@ -195,7 +195,7 @@ DivMap_2 <- function(basemap, mun.border, title)
 # Brown terrestrial areas, green background:
 DivMap_3 <- function(basemap, mun.border, title)
 {
-  par(bg="lightgreen")
+  #par(bg="lightgreen")
   plot(basemap, border="bisque3", lwd=1, lty=1, col="bisque3",
        xlim=c(mun.border@bbox[1,1],mun.border@bbox[1,2]),
        ylim=c(mun.border@bbox[2,1],mun.border@bbox[2,2]), main=title)
